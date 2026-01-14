@@ -1,0 +1,19 @@
+{
+    "LOGGER_IP": "127.0.0.1",
+    "LOGGER_PORT": 5000,
+
+    "MODEL_IP": "127.0.0.1",
+    "MODEL_PORT": 5001,
+    "MODEL_ID": "model",
+
+    "FEED_CONTROLLER_IP": "127.0.0.1",
+    "FEED_CONTROLLER_PORT": 5002,
+    "FEED_ID": "feed",
+    
+    "COOLANT_CONTROLLER_IP": "127.0.0.1",
+    "COOLANT_CONTROLLER_PORT": 5003,
+    "COOLANT_ID": "coolant",
+
+    "SP_Y1": 0.5,
+    "SP_Y2": 0.3
+}
