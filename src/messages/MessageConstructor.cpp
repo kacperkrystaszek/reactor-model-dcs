@@ -11,11 +11,12 @@ void MessageConstructor::createAckMsg(std::stringstream& buf){
     const std::string type = MESSAGE_TYPES[MessageType::ACK];
     buf << "{\"type\":\"" << type << "\"}";
 }
-void MessageConstructor::createStateMsg(float& u1, float& u2, float& y1, float& y2, std::stringstream& buf){
+void MessageConstructor::createStateMsg(float& u1, float& u2, float& y1, float& y2, int psc, std::stringstream& buf){
     const std::string type = MESSAGE_TYPES[MessageType::STATUS];
     buf << "{\"type\":\"" << type << "\", \"payload\": {" << 
     "\"u1\": " << u1 << ", " << 
     "\"u2\": " << u2 << ", " << 
     "\"y1\": " << y1 << ", " << 
-    "\"y2\": " << y2 << "}}";
+    "\"y2\": " << y2 << ", " <<
+    "\"psc\": " << psc << "}}";
 }

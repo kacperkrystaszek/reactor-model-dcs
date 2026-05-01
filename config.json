@@ -14,6 +14,12 @@
     "COOLANT_CONTROLLER_PORT": 5003,
     "COOLANT_ID": "coolant",
 
-    "SP_Y1": 0.5,
-    "SP_Y2": 0.3
+    "SP_Y1": 1,
+    "SP_Y2": 0.8,
+    "Y1_0": 0.0,
+    "Y2_0": 0.0,
+    "BETA": 0.025,
+    "HMAX": 5,
+    "T_BASE": 1800,
+    "EVENT_BASED": true
 }

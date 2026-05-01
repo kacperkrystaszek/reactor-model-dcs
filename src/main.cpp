@@ -2,6 +2,7 @@
 #include <thread>
 #include <chrono>
 #include <sstream>
+#include <cmath>
 
 #include "State.h"
 #include "config/SystemConfig.h"
@@ -9,6 +10,7 @@
 #include "ReactorModel.h"
 #include "UDPSocket.h"
 #include "messages/MessageConstructor.h"
+#include <iomanip>
 
 void performHandshake(UDPSocket& sock, const SystemConfig& cfg) {
     std::cout << "[MODEL] Connecting to Logger at " << cfg.logger_ip << ":" << cfg.logger_port << "..." << std::endl;
@@ -40,6 +42,17 @@ void performHandshake(UDPSocket& sock, const SystemConfig& cfg) {
     }
 }
 
+std::string getCurrentTimeStr() {
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    std::tm* local_time = std::localtime(&now_c);
+    
+    std::stringstream ss;
+    ss << std::put_time(local_time, "%H:%M:%S");
+    
+    return ss.str();
+}
+
 int main() {
     try {
         SystemConfig cfg = ConfigLoader::load("config.json");
@@ -50,12 +63,13 @@ int main() {
 
         performHandshake(sock, cfg);
 
-        std::cout << "[MODEL] Starting simulation loop..." << std::endl;
+        std::cout << "[" << getCurrentTimeStr() <<  "] [MODEL] Starting simulation loop..." << std::endl;
 
         float u1 = 0.0f, u2 = 0.0f;
-        float y1 = 0.0f, y2 = 0.0f;
+        float y1 = cfg.y1_0, y2 = cfg.y2_0;
+        int psc = 1;
 
-        const auto cycle_duration = std::chrono::milliseconds(1800);
+        const auto cycle_duration = std::chrono::milliseconds(cfg.t_base);
         auto next_step_time = std::chrono::steady_clock::now();
 
         while (true) {
@@ -65,7 +79,7 @@ int main() {
                 std::string cmd = sock.recvFrom();
 
                 if (!cmd.empty()) {
-                    std::cout << "[MODEL] Parsing cmd: " << cmd << std::endl;
+                    std::cout << "[" << getCurrentTimeStr() << "] [MODEL] Parsing cmd: " << cmd << std::endl;
                     size_t pU1 = cmd.find("\"u1\":");
                     size_t pU2 = cmd.find("\"u2\":");
 
@@ -77,21 +91,38 @@ int main() {
                     }
                 }
             }
-            std::cout << "[MODEL] Making step -> u1: " << u1 << " u2: " << u2 << std::endl;
+            // U1 - FEED, U2 - COOLANT
+            std::cout << "[" << getCurrentTimeStr() <<  "] [MODEL] Making step -> u1: " << u1 << " u2: " << u2 << std::endl;
             reactor.step(u1, u2, y1, y2);
-            std::cout << "[MODEL] After step -> y1: " << y1 << " y2: " << y2 << std::endl;
+            std::cout << "[" << getCurrentTimeStr() <<  "] [MODEL] After step -> y1: " << y1 << " y2: " << y2 << std::endl;
+
+            float error1 = std::abs(cfg.sp_y1 - y1);
+            float error2 = std::abs(cfg.sp_y2 - y2);
+
+            bool trigger = true;
+
+            if (cfg.event_based) {
+                bool trigger = (error1 >= cfg.beta) || (error2 >= cfg.beta) || (psc >= cfg.hmax);
+            }
 
             std::stringstream ss;
-            MessageConstructor::createStateMsg(u1, u2, y1, y2, ss);
+            MessageConstructor::createStateMsg(u1, u2, y1, y2, psc, ss);
             std::string stateJson = ss.str();
 
             sock.sendTo(stateJson, cfg.logger_ip, cfg.logger_port);
-            sock.sendTo(stateJson, cfg.feed_ip, cfg.feed_port);
-            sock.sendTo(stateJson, cfg.coolant_ip, cfg.coolant_port);
+
+            if (trigger) {
+                std::cout << "[" << getCurrentTimeStr() <<  "] [MODEL] Event triggered. error feed: " << error1 << ", error coolant: " << error2 << " psc: " << psc << std::endl;
+                sock.sendTo(stateJson, cfg.feed_ip, cfg.feed_port);
+                sock.sendTo(stateJson, cfg.coolant_ip, cfg.coolant_port);
+                psc = 1;
+            } else {
+                psc++;
+            }
         }
 
     } catch (const std::exception& e) {
-        std::cerr << "CRITICAL ERROR: " << e.what() << std::endl;
+        std::cerr << "[" << getCurrentTimeStr() <<  "] CRITICAL ERROR: " << e.what() << std::endl;
         return 1;
     }
 

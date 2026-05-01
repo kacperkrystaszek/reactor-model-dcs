@@ -30,6 +30,15 @@ SystemConfig ConfigLoader::load(const std::string& filename) {
     cfg.coolant_port = getInt(json, "COOLANT_CONTROLLER_PORT");
     cfg.coolant_id = getString(json, "COOLANT_ID");
 
+    cfg.sp_y1 = getFloat(json, "SP_Y1");
+    cfg.sp_y2 = getFloat(json, "SP_Y2");
+    cfg.y1_0 = getFloat(json, "Y1_0");
+    cfg.y2_0 = getFloat(json, "Y2_0");
+    cfg.beta = getFloat(json, "BETA");
+    cfg.hmax = getInt(json, "HMAX");
+    cfg.t_base = getInt(json, "T_BASE");
+    cfg.event_based = getBool(json, "EVENT_BASED");
+
     return cfg;
 }
 
@@ -58,4 +67,33 @@ int ConfigLoader::getInt(const std::string& json, const std::string& key) {
     
     size_t end = json.find_first_of(",}\n\r\t ", start);
     return std::stoi(json.substr(start, end - start));
+}
+
+float ConfigLoader::getFloat(const std::string& json, const std::string& key) {
+    std::string searchKey = "\"" + key + "\"";
+    size_t pos = json.find(searchKey);
+    if (pos == std::string::npos) return 0.0f;
+
+    pos = json.find(":", pos);
+    size_t start = json.find_first_of("0123456789.-", pos);
+    if (start == std::string::npos) return 0.0f;
+    
+    size_t end = json.find_first_of(",}\n\r\t ", start);
+    return std::stof(json.substr(start, end - start));
+}
+
+bool ConfigLoader::getBool(const std::string& json, const std::string& key) {
+    std::string searchKey = "\"" + key + "\"";
+    size_t pos = json.find(searchKey);
+    if (pos == std::string::npos) return false; // Default to false if not found
+
+    pos = json.find(":", pos);
+    size_t startTrue = json.find("true", pos);
+    size_t startFalse = json.find("false", pos);
+
+    if (startTrue != std::string::npos && (startFalse == std::string::npos || startTrue < startFalse)) {
+        return true;
+    }
+    
+    return false;
 }

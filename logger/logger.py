@@ -100,9 +100,10 @@ class Logger:
                 y1, y2 = payload.get("y1"), payload.get("y2")
                 u1, u2 = payload.get("u1"), payload.get("u2")
 
+                tolerance = 0.05
                 c_rst = "\033[0m"
-                c_y1 = "\033[92m" if abs(y1 - SP_Y1) < 0.05 else "\033[91m"
-                c_y2 = "\033[92m" if abs(y2 - SP_Y2) < 0.05 else "\033[91m"
+                c_y1 = "\033[92m" if abs(y1 - SP_Y1) < self.config.get("BETA", tolerance) else "\033[91m"
+                c_y2 = "\033[92m" if abs(y2 - SP_Y2) < self.config.get("BETA", tolerance) else "\033[91m"
                 print(f"{ts:<10} | {c_y1}{y1:<8.4f}{c_rst} {c_y2}{y2:<8.4f}{c_rst} | {u1:<8.4f} {u2:<8.4f}")
                 self.csv_writer.writerow([
                     ts,

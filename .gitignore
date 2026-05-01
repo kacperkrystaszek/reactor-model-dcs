@@ -3,3 +3,6 @@ __pycache__
 build
 bin
 logger/logs/*
+eb_MPC_general_sim/*
+*.pdf
+*.zip
