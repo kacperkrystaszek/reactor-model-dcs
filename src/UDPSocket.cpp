@@ -35,7 +35,10 @@ void UDPSocket::sendTo(const std::string& msg, const std::string& ip, int port) 
     dest_addr.sin_port = htons(port);
     inet_aton(ip.c_str(), &dest_addr.sin_addr);
 
-    sendto(sockfd, msg.c_str(), msg.length(), 0, (const struct sockaddr*)&dest_addr, sizeof(dest_addr));
+    ssize_t res = sendto(sockfd, msg.c_str(), msg.length(), 0, (const struct sockaddr*)&dest_addr, sizeof(dest_addr));
+    if (res < 0) {
+        throw std::runtime_error("Send failed: Connection reset or unreachable");
+    }
 }
 
 std::string UDPSocket::recvFrom(int max_len) {

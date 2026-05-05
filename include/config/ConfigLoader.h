@@ -5,6 +5,7 @@
 class ConfigLoader {
     public:
         static SystemConfig load(const std::string& filename);
+        static SystemConfig loadFromString(const std::string& json);
 
     private:
         static std::string getString(const std::string& json, const std::string& key);

@@ -7,7 +7,6 @@ import sys
 import numpy as np
 from scipy.interpolate import lagrange
 
-from controller.gpc_config import *
 import numpy as np
 from utils.MessageType import MessageType
 from utils.States import States
@@ -17,14 +16,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 class Controller:
-    A1_Y1, A2_Y1 = 1.8629, -0.8669
-    B0_U1_Y1, B1_U1_Y1 = 0.0420, -0.0380
-    B0_U2_Y1, B1_U2_Y1 = 0.4758, -0.4559
-    
-    A1_Y2, A2_Y2 = 1.8695, -0.8737
-    B0_U1_Y2, B1_U1_Y2 = 0.0582, -0.0540
-    B0_U2_Y2, B1_U2_Y2 = 0.1445, -0.1361
-
     def __init__(self, config: dict[str, int|str], sock: socket.socket, controller_id: str):
         self.config = config
         self._sock = sock
@@ -38,6 +29,25 @@ class Controller:
         self.history_y1 = []
         self.history_y2 = []
         self.current_t = 0.0
+        self.update_model()
+
+    def update_model(self):
+        alpha = self.config.get('ALPHA', 1)
+        current_T_BASE = self.config.get('T_BASE', 1800) / alpha
+        T_min = (current_T_BASE / 1000.0) / 60.0
+        p1, p2 = np.exp(-T_min / (0.7 / alpha)), np.exp(-T_min / (0.3 / alpha))
+        p3, p4 = np.exp(-T_min / (0.5 / alpha)), np.exp(-T_min / (0.4 / alpha))
+
+        self.A1_Y1, self.A2_Y1 = p1 + p2, -(p1 * p2)
+        b1, b2 = 1.0 * (1 - p1), 5.0 * (1 - p2)
+        self.B0_U1_Y1, self.B1_U1_Y1 = b1, -b1 * p2
+        self.B0_U2_Y1, self.B1_U2_Y1 = b2, -b2 * p1
+
+        self.A1_Y2, self.A2_Y2 = p3 + p4, -(p3 * p4)
+        b3, b4 = 1.0 * (1 - p3), 2.0 * (1 - p4)
+        self.B0_U1_Y2, self.B1_U1_Y2 = b3, -b3 * p4
+        self.B0_U2_Y2, self.B1_U2_Y2 = b4, -b4 * p3
+        self.k_mpc_cache.clear()
 
     def _create_init_msg(self) -> str:
         return json.dumps({"type": MessageType.INIT.value, "id": self.my_id})
@@ -86,6 +96,7 @@ class Controller:
             [g_21[s3], g_22[s3], g_21[s2],   g_22[s2]],
         ])
         
+        LAMBDA = self.config.get("LAMBDA", 0.5)
         HTH = G.T @ G + LAMBDA * np.eye(4)
         K = np.linalg.inv(HTH) @ G.T
         self.k_mpc_cache[psc] = K
@@ -93,6 +104,8 @@ class Controller:
         return K
 
     def resample_states_lagrange(self, T_f):
+        T_BASE = self.config.get("T_BASE", 1800) / 1000.0
+        
         if len(self.history_t) == 1:
             return self.history_y1[-1], self.history_y1[-1], \
                    self.history_y2[-1], self.history_y2[-1]
@@ -169,6 +182,9 @@ class Controller:
                 mtype = msg.get("type")
                 
                 if self._state == States.INIT and mtype == MessageType.ACK.value:
+                    if "config" in msg:
+                        self.config.update(msg["config"])
+                        self.update_model()
                     print(f"[{self.my_id.upper()}] Received ACK. Standby.")
                     self._state = States.STANDBY
                     
@@ -202,9 +218,11 @@ class Controller:
 
                 y1, y2 = payload["y1"], payload["y2"]
                 u1_curr, u2_curr = payload["u1"], payload["u2"]
-                psc = payload.get("psc", 1)
-                
-                T_f = psc * T_BASE
+                sp_y1, sp_y2 = payload.get("sp_y1"), payload.get("sp_y2")
+                psc1, psc2 = payload.get("psc1", 1), payload.get("psc2", 1)
+
+                my_psc = psc1 if self.my_id == FEED_ID else psc2
+                T_f = my_psc * (self.config.get("T_BASE", 1800) / 1000.0)
                 self.current_t += T_f
                 self.history_t.append(self.current_t)
                 self.history_y1.append(y1)
@@ -217,7 +235,7 @@ class Controller:
 
                 y1, y1_prev, y2, y2_prev = self.resample_states_lagrange(T_f)
                 
-                if psc > 1:
+                if my_psc > 1:
                     u1_prev = u1_curr
                     u2_prev = u2_curr
                 else:
@@ -229,17 +247,17 @@ class Controller:
                 u1_h = [u1_curr, u1_prev]
                 u2_h = [u2_curr, u2_prev]
 
-                f_vec = self.calculate_free_response(y1_h, y2_h, u1_h, u2_h, psc)
+                f_vec = self.calculate_free_response(y1_h, y2_h, u1_h, u2_h, my_psc)
                 
-                w_vec = np.array([SP_Y1, SP_Y2] * 3)
-                K_mpc_psc = self.get_K_mpc(psc)
+                w_vec = np.array([sp_y1, sp_y2] * 3)
+                K_mpc_psc = self.get_K_mpc(my_psc)
                 delta_u = K_mpc_psc @ (w_vec - f_vec)
 
                 if self.my_id == FEED_ID:
-                    new_u = u1_curr + delta_u[0]
+                    new_u = np.clip(u1_curr + delta_u[0], -0.5, 0.5)
                     cmd = json.dumps({"u1": new_u})
                 elif self.my_id == COOLANT_ID:
-                    new_u = u2_curr + delta_u[1]
+                    new_u = np.clip(u2_curr + delta_u[1], -0.5, 0.5)
                     cmd = json.dumps({"u2": new_u})
                 else:
                     continue
@@ -247,5 +265,11 @@ class Controller:
                 print(f"{ts} [{self.my_id.upper()}] Event received. Sending value: {cmd}")
                 self._sock.sendto(cmd.encode(), (MODEL_IP, MODEL_PORT))
 
+            except ConnectionResetError:
+                print(f"[{self.my_id.upper()}] Connection reset by peer. Restarting handshake...")
+                self._state = States.INIT
+                return
+            except socket.timeout:
+                continue
             except Exception as e:
                 raise

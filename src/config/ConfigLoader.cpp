@@ -4,7 +4,6 @@
 #include <stdexcept>
 
 SystemConfig ConfigLoader::load(const std::string& filename) {
-    SystemConfig cfg;
     std::ifstream file(filename);
     
     if (!file.is_open()) {
@@ -14,6 +13,12 @@ SystemConfig ConfigLoader::load(const std::string& filename) {
     std::stringstream buffer;
     buffer << file.rdbuf();
     std::string json = buffer.str();
+    
+    return loadFromString(json);
+}
+
+SystemConfig ConfigLoader::loadFromString(const std::string& json) {
+    SystemConfig cfg;
 
     cfg.logger_ip = getString(json, "LOGGER_IP");
     cfg.logger_port = getInt(json, "LOGGER_PORT");
@@ -32,11 +37,17 @@ SystemConfig ConfigLoader::load(const std::string& filename) {
 
     cfg.sp_y1 = getFloat(json, "SP_Y1");
     cfg.sp_y2 = getFloat(json, "SP_Y2");
+    cfg.sp_y1_step2 = getFloat(json, "SP_Y1_STEP2");
+    cfg.sp_y2_step2 = getFloat(json, "SP_Y2_STEP2");
     cfg.y1_0 = getFloat(json, "Y1_0");
     cfg.y2_0 = getFloat(json, "Y2_0");
-    cfg.beta = getFloat(json, "BETA");
-    cfg.hmax = getInt(json, "HMAX");
+    cfg.beta_y1 = getFloat(json, "BETA_Y1");
+    cfg.beta_y2 = getFloat(json, "BETA_Y2");
+    cfg.hmax_y1 = getInt(json, "HMAX_Y1");
+    cfg.hmax_y2 = getInt(json, "HMAX_Y2");
     cfg.t_base = getInt(json, "T_BASE");
+    cfg.alpha = getInt(json, "ALPHA");
+    cfg.t_base = cfg.t_base / cfg.alpha;
     cfg.event_based = getBool(json, "EVENT_BASED");
 
     return cfg;

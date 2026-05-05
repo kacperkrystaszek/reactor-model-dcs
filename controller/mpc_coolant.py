@@ -16,18 +16,25 @@ def main(config: dict[str, str|int]):
     sock.bind(("0.0.0.0", PORT))
 
     controller = Controller(config, sock, MY_ID)
-    controller.perform_handshake()
     
-    print(f"[{MY_ID.upper()}] Control Loop Started.")
-    
-    y1_h = [0.0, 0.0]
-    y2_h = [0.0, 0.0]
-    u1_h = [0.0, 0.0]
-    u2_h = [0.0, 0.0]
+    while True:
+        controller.perform_handshake()
+        
+        print(f"[{MY_ID.upper()}] Control Loop Started.")
+        
+        y1_h = [0.0, 0.0]
+        y2_h = [0.0, 0.0]
+        u1_h = [0.0, 0.0]
+        u2_h = [0.0, 0.0]
 
-    controller.main_loop(y1_h, y2_h, u1_h, u2_h)
+        controller.main_loop(y1_h, y2_h, u1_h, u2_h)
 
 
 if __name__ == "__main__":
-    loaded_config = load_config()
-    main(loaded_config)
+    default_config = {
+        "COOLANT_CONTROLLER_PORT": 5003,
+        "COOLANT_ID": "coolant",
+        "LOGGER_IP": "127.0.0.1",
+        "LOGGER_PORT": 5000
+    }
+    main(default_config)
