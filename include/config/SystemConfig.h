@@ -30,6 +30,7 @@ struct SystemConfig {
     int alpha;
     int hmax_y1;
     int hmax_y2;
+    float lambda;
     
     bool event_based;
 };

@@ -4,6 +4,8 @@
 #include <cstring>
 #include <stdexcept>
 #include <vector>
+#include <netinet/in.h>
+#include <netinet/ip.h>
 
 UDPSocket::UDPSocket(int port) {
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -18,10 +20,20 @@ UDPSocket::UDPSocket(int port) {
         throw std::runtime_error("Bind failed on port " + std::to_string(port));
     }
 
+    // Set socket timeout
     struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 100000;
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    // Real-Time optimizations for the socket
+    // Set socket priority to high (6 is typically used for interactive voice/control)
+    int priority = 6;
+    setsockopt(sockfd, SOL_SOCKET, SO_PRIORITY, &priority, sizeof(priority));
+
+    // Set IP Type of Service to Low Delay
+    int tos = IPTOS_LOWDELAY;
+    setsockopt(sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
 }
 
 UDPSocket::~UDPSocket() {
@@ -29,13 +41,17 @@ UDPSocket::~UDPSocket() {
 }
 
 void UDPSocket::sendTo(const std::string& msg, const std::string& ip, int port) {
+    sendTo(msg.c_str(), msg.length(), ip, port);
+}
+
+void UDPSocket::sendTo(const char* msg, size_t len, const std::string& ip, int port) {
     struct sockaddr_in dest_addr;
     memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(port);
     inet_aton(ip.c_str(), &dest_addr.sin_addr);
 
-    ssize_t res = sendto(sockfd, msg.c_str(), msg.length(), 0, (const struct sockaddr*)&dest_addr, sizeof(dest_addr));
+    ssize_t res = sendto(sockfd, msg, len, 0, (const struct sockaddr*)&dest_addr, sizeof(dest_addr));
     if (res < 0) {
         throw std::runtime_error("Send failed: Connection reset or unreachable");
     }
@@ -43,13 +59,16 @@ void UDPSocket::sendTo(const std::string& msg, const std::string& ip, int port) 
 
 std::string UDPSocket::recvFrom(int max_len) {
     std::vector<char> buffer(max_len);
-    struct sockaddr_in client_address;
-    socklen_t len = sizeof(client_address);
-
-    int n = recvfrom(sockfd, buffer.data(), max_len, 0, (struct sockaddr*)&client_address, &len);
-    
+    int n = recvFrom(buffer.data(), max_len);
     if (n > 0) {
         return std::string(buffer.data(), n);
     }
     return "";
+}
+
+int UDPSocket::recvFrom(char* buffer, int max_len) {
+    struct sockaddr_in client_address;
+    socklen_t len = sizeof(client_address);
+    int n = recvfrom(sockfd, buffer, max_len, 0, (struct sockaddr*)&client_address, &len);
+    return n;
 }

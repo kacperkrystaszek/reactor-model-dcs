@@ -48,6 +48,14 @@ SystemConfig ConfigLoader::loadFromString(const std::string& json) {
     cfg.t_base = getInt(json, "T_BASE");
     cfg.alpha = getInt(json, "ALPHA");
     cfg.t_base = cfg.t_base / cfg.alpha;
+    
+    std::string searchKey = "\"LAMBDA\"";
+    if (json.find(searchKey) != std::string::npos) {
+        cfg.lambda = getFloat(json, "LAMBDA");
+    } else {
+        cfg.lambda = 0.5f;
+    }
+
     cfg.event_based = getBool(json, "EVENT_BASED");
 
     return cfg;

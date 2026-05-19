@@ -22,4 +22,16 @@ set(SOURCES
     src/main.cpp
 )
 
+set(CONTROLLER_SOURCES
+    src/config/ConfigLoader.cpp
+    src/messages/MessageConstructor.cpp
+    src/UDPSocket.cpp
+    src/Controller.cpp
+)
+
 add_executable(main ${SOURCES})
+add_executable(feed_controller src/feed_main.cpp ${CONTROLLER_SOURCES})
+target_compile_definitions(feed_controller PRIVATE DISABLE_RT_LOGGING)
+
+add_executable(coolant_controller src/coolant_main.cpp ${CONTROLLER_SOURCES})
+target_compile_definitions(coolant_controller PRIVATE DISABLE_RT_LOGGING)
