@@ -30,8 +30,12 @@ set(CONTROLLER_SOURCES
 )
 
 add_executable(main ${SOURCES})
+find_package(Threads REQUIRED)
+
 add_executable(feed_controller src/feed_main.cpp ${CONTROLLER_SOURCES})
+target_link_libraries(feed_controller PRIVATE Threads::Threads)
 target_compile_definitions(feed_controller PRIVATE DISABLE_RT_LOGGING)
 
 add_executable(coolant_controller src/coolant_main.cpp ${CONTROLLER_SOURCES})
+target_link_libraries(coolant_controller PRIVATE Threads::Threads)
 target_compile_definitions(coolant_controller PRIVATE DISABLE_RT_LOGGING)

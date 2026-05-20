@@ -1,5 +1,6 @@
 enum State{
     INIT,
     WAIT_ACK,
-    WAIT_START
+    WAIT_START,
+    RUNNING
 };

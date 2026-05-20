@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.MessageType import MessageType
 from utils.utils import load_config
-from controller.gpc_config import T_BASE, EVENT_BASED
+from controller.gpc_config import T_BASE, EVENT_BASED, ALPHA
 
 class Logger:
     def __init__(self, config: dict):
@@ -81,7 +81,7 @@ class Logger:
         time.sleep(0.5)
 
     def monitoring_phase(self):
-        print(f"TIMESTAMP  | Y1       Y2       | Y1SP     Y2SP     | U1       U2       | EVENT")
+        print(f"TIMESTAMP  | Y1SP     Y2SP     | Y1       Y2       | U1       U2       | EVENT")
         self.init_log_file()
         while True:
             data, addr = self._sock.recvfrom(4096)
@@ -128,7 +128,7 @@ class Logger:
     def init_log_file(self):
         timestamp = datetime.datetime.now()
         timestamp_str = timestamp.strftime("%d-%m-%Y_%H-%M-%S")
-        main_part = f"data_{timestamp_str}_TBASE-{T_BASE}_EB_{EVENT_BASED}" 
+        main_part = f"data_{timestamp_str}_ALPHA-{ALPHA}_EB_{EVENT_BASED}" 
         filename = f"{main_part}.csv"
         path = os.path.join("logger", "logs", main_part)
         os.makedirs(path, exist_ok=True)

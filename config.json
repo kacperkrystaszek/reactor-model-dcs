@@ -25,9 +25,9 @@
     "BETA_Y1": 0.005,
     "BETA_Y2": 0.005,
     "HMAX_Y1": 5,
-    "HMAX_Y2": 10,
+    "HMAX_Y2": 6,
     "T_BASE": 1800,
-    "ALPHA": 1,
+    "ALPHA": 10,
 
     "EVENT_BASED": true
 }
