@@ -29,7 +29,11 @@ set(CONTROLLER_SOURCES
     src/Controller.cpp
 )
 
-add_executable(main ${SOURCES})
+add_executable(main src/main.cpp src/config/ConfigLoader.cpp src/messages/MessageConstructor.cpp src/ReactorModel.cpp src/UDPSocket.cpp)
+
+add_executable(model_linux_rt src/main_linux_rt.cpp)
+target_link_libraries(model_linux_rt PRIVATE Threads::Threads)
+target_compile_definitions(model_linux_rt PRIVATE DISABLE_RT_LOGGING)
 find_package(Threads REQUIRED)
 
 add_executable(feed_controller src/feed_main.cpp ${CONTROLLER_SOURCES})
