@@ -1,24 +1,23 @@
 #include "Controller.h"
 #include "messages/MessageConstructor.h"
-#include <iostream>
-#include <sstream>
 #include <cmath>
-#include <chrono>
 #include <thread>
 #include <algorithm>
-#include <string_view>
+#include <cstring>
+#include <cstdio>
 
 Controller::Controller(SystemConfig config, UDPSocket& sock, const std::string& controller_id)
     : config(config), sock(sock), my_id(controller_id), state(State::INIT) {
-    history_t.reserve(history_len + 1);
-    history_y1.reserve(history_len + 1);
-    history_y2.reserve(history_len + 1);
+    for (int i = 0; i < 6; ++i) {
+        k_mpc_valid[i] = false;
+    }
+    history_count = 0;
     updateModel();
 }
 
 void Controller::updateModel() {
     float alpha = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
-    float current_T_BASE = static_cast<float>(config.t_base); // Already divided by alpha in ConfigLoader
+    float current_T_BASE = static_cast<float>(config.t_base);
     float T_min = (current_T_BASE / 1000.0f) / 60.0f;
     
     float p1 = std::exp(-T_min / (0.7f / alpha));
@@ -44,56 +43,59 @@ void Controller::updateModel() {
     B0_U2_Y2 = b4;
     B1_U2_Y2 = -b4 * p3;
 
-    k_mpc_cache.clear();
+    for (int i = 0; i < 6; ++i) {
+        k_mpc_valid[i] = false;
+    }
 }
 
-std::string Controller::createInitMsg() {
-    return "{\"type\":\"INIT\",\"id\":\"" + my_id + "\"}";
-}
+Matrix<4, 6> Controller::getKmpc(int psc) {
+    if (psc >= 0 && psc < 6 && k_mpc_valid[psc]) {
+        return k_mpc_cache[psc];
+    }
 
-std::pair<std::vector<float>, std::vector<float>> Controller::stepResponse(float u1_step, float u2_step, int n_steps) {
+    int n_steps = 3 * psc;
+    
+    // Calculate step responses locally without std::vector allocation
+    float g_11[300] = {0}, g_21[300] = {0};
+    float g_12[300] = {0}, g_22[300] = {0};
+    
+    // Step response for U1 = 1
     float y1 = 0.0f, y1_prev = 0.0f;
     float y2 = 0.0f, y2_prev = 0.0f;
-    std::vector<float> resp_y1(n_steps);
-    std::vector<float> resp_y2(n_steps);
-    
-    for (int k = 0; k < n_steps; ++k) {
-        float u1_now = u1_step;
-        float u1_old = (k == 0) ? 0.0f : u1_step;
-        float u2_now = u2_step;
-        float u2_old = (k == 0) ? 0.0f : u2_step;
+    for (int k = 0; k < n_steps && k < 300; ++k) {
+        float u1_now = 1.0f;
+        float u1_old = (k == 0) ? 0.0f : 1.0f;
         
-        float y1_new = A1_Y1 * y1 + A2_Y1 * y1_prev +
-                       B0_U1_Y1 * u1_now + B1_U1_Y1 * u1_old +
-                       B0_U2_Y1 * u2_now + B1_U2_Y1 * u2_old;
+        float y1_new = A1_Y1 * y1 + A2_Y1 * y1_prev + B0_U1_Y1 * u1_now + B1_U1_Y1 * u1_old;
+        float y2_new = A1_Y2 * y2 + A2_Y2 * y2_prev + B0_U1_Y2 * u1_now + B1_U1_Y2 * u1_old;
                        
-        float y2_new = A1_Y2 * y2 + A2_Y2 * y2_prev +
-                       B0_U1_Y2 * u1_now + B1_U1_Y2 * u1_old +
-                       B0_U2_Y2 * u2_now + B1_U2_Y2 * u2_old;
-                       
-        resp_y1[k] = y1_new;
-        resp_y2[k] = y2_new;
+        g_11[k] = y1_new;
+        g_21[k] = y2_new;
+        y1_prev = y1; y1 = y1_new;
+        y2_prev = y2; y2 = y2_new;
+    }
+
+    // Step response for U2 = 1
+    y1 = 0.0f; y1_prev = 0.0f;
+    y2 = 0.0f; y2_prev = 0.0f;
+    for (int k = 0; k < n_steps && k < 300; ++k) {
+        float u2_now = 1.0f;
+        float u2_old = (k == 0) ? 0.0f : 1.0f;
         
+        float y1_new = A1_Y1 * y1 + A2_Y1 * y1_prev + B0_U2_Y1 * u2_now + B1_U2_Y1 * u2_old;
+        float y2_new = A1_Y2 * y2 + A2_Y2 * y2_prev + B0_U2_Y2 * u2_now + B1_U2_Y2 * u2_old;
+                       
+        g_12[k] = y1_new;
+        g_22[k] = y2_new;
         y1_prev = y1; y1 = y1_new;
         y2_prev = y2; y2 = y2_new;
     }
     
-    return {resp_y1, resp_y2};
-}
-
-Matrix<4, 6> Controller::getKmpc(int psc) {
-    auto it = k_mpc_cache.find(psc);
-    if (it != k_mpc_cache.end()) {
-        return it->second;
-    }
-
-    int n_steps = 3 * psc;
-    auto [g_11, g_21] = stepResponse(1.0f, 0.0f, n_steps);
-    auto [g_12, g_22] = stepResponse(0.0f, 1.0f, n_steps);
-    
     int s1 = psc - 1;
     int s2 = 2 * psc - 1;
     int s3 = 3 * psc - 1;
+    
+    if (s3 >= 300) s3 = 299; // Safety limit
     
     Matrix<6, 4> G;
     G.data[0] = {g_11[s1], g_12[s1], 0.0f,     0.0f};
@@ -114,16 +116,18 @@ Matrix<4, 6> Controller::getKmpc(int psc) {
     Matrix<4, 4> invHTH = invert4x4(HTH);
     Matrix<4, 6> K = invHTH * GT;
     
-    k_mpc_cache[psc] = K;
-    std::cout << "[" << my_id << "] Multi-rate K_mpc cached for psc=" << psc << ".\n";
+    if (psc >= 0 && psc < 6) {
+        k_mpc_cache[psc] = K;
+        k_mpc_valid[psc] = true;
+    }
     return K;
 }
 
-static float evaluateLagrange(const std::vector<float>& x, const std::vector<float>& y, float target_x) {
+static float evaluateLagrange(const float* x, const float* y, size_t count, float target_x) {
     float result = 0.0f;
-    for (size_t i = 0; i < x.size(); ++i) {
+    for (size_t i = 0; i < count; ++i) {
         float term = y[i];
-        for (size_t j = 0; j < x.size(); ++j) {
+        for (size_t j = 0; j < count; ++j) {
             if (i != j) {
                 term = term * (target_x - x[j]) / (x[i] - x[j]);
             }
@@ -136,34 +140,41 @@ static float evaluateLagrange(const std::vector<float>& x, const std::vector<flo
 void Controller::resampleStatesLagrange(float T_f, float& y1, float& y1_prev, float& y2, float& y2_prev) {
     float T_BASE = config.t_base / 1000.0f;
     
-    if (history_t.size() == 1) {
-        y1 = history_y1.back(); y1_prev = history_y1.back();
-        y2 = history_y2.back(); y2_prev = history_y2.back();
+    if (history_count == 1) {
+        y1 = history_y1[0]; y1_prev = history_y1[0];
+        y2 = history_y2[0]; y2_prev = history_y2[0];
         return;
     }
-    if (history_t.size() == 2 || std::abs(T_f - T_BASE) < 0.01f) {
-        y1 = history_y1.back(); y1_prev = history_y1[history_y1.size() - 2];
-        y2 = history_y2.back(); y2_prev = history_y2[history_y2.size() - 2];
+    if (history_count == 2 || std::abs(T_f - T_BASE) < 0.01f) {
+        y1 = history_y1[history_count - 1]; y1_prev = history_y1[history_count - 2];
+        y2 = history_y2[history_count - 1]; y2_prev = history_y2[history_count - 2];
         return;
     }
 
-    float t_curr_real = history_t.back();
-    std::vector<float> normalized_t(history_t.size());
-    for (size_t i = 0; i < history_t.size(); ++i) {
+    float t_curr_real = history_t[history_count - 1];
+    float normalized_t[HISTORY_MAX];
+    for (size_t i = 0; i < history_count; ++i) {
         normalized_t[i] = history_t[i] - t_curr_real;
     }
 
-    float y1_resampled = evaluateLagrange(normalized_t, history_y1, -T_BASE);
-    float y2_resampled = evaluateLagrange(normalized_t, history_y2, -T_BASE);
+    float y1_resampled = evaluateLagrange(normalized_t, history_y1, history_count, -T_BASE);
+    float y2_resampled = evaluateLagrange(normalized_t, history_y2, history_count, -T_BASE);
 
-    float min_y1 = *std::min_element(history_y1.begin(), history_y1.end());
-    float max_y1 = *std::max_element(history_y1.begin(), history_y1.end());
-    float min_y2 = *std::min_element(history_y2.begin(), history_y2.end());
-    float max_y2 = *std::max_element(history_y2.begin(), history_y2.end());
+    float min_y1 = history_y1[0];
+    float max_y1 = history_y1[0];
+    float min_y2 = history_y2[0];
+    float max_y2 = history_y2[0];
 
-    y1 = history_y1.back();
+    for (size_t i = 1; i < history_count; ++i) {
+        if (history_y1[i] < min_y1) min_y1 = history_y1[i];
+        if (history_y1[i] > max_y1) max_y1 = history_y1[i];
+        if (history_y2[i] < min_y2) min_y2 = history_y2[i];
+        if (history_y2[i] > max_y2) max_y2 = history_y2[i];
+    }
+
+    y1 = history_y1[history_count - 1];
     y1_prev = std::clamp(y1_resampled, min_y1, max_y1);
-    y2 = history_y2.back();
+    y2 = history_y2[history_count - 1];
     y2_prev = std::clamp(y2_resampled, min_y2, max_y2);
 }
 
@@ -205,24 +216,26 @@ Matrix<6, 1> Controller::calculateFreeResponse(const std::array<float, 2>& y1_h,
 }
 
 void Controller::performHandshake() {
-    std::cout << "[" << my_id << "] Connecting to Logger...\n";
+    char buf[256];
     
     while (state != State::RUNNING) {
         if (state == State::INIT) {
-            std::string msg = createInitMsg();
-            sock.sendTo(msg, config.logger_ip, config.logger_port);
-            std::cout << "[" << my_id << "] Sent INIT...\n";
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            snprintf(buf, sizeof(buf), "{\"type\":\"INIT\",\"id\":\"%s\"}", my_id.c_str());
+            sock.sendTo(buf, config.logger_ip, config.logger_port);
+            
+            // Allow sleep outside RT loop
+            struct timespec ts;
+            ts.tv_sec = 1;
+            ts.tv_nsec = 0;
+            nanosleep(&ts, NULL);
         }
         
         std::string data = sock.recvFrom();
         if (data.empty()) continue;
         
         if (state == State::INIT && data.find("\"ACK\"") != std::string::npos) {
-            std::cout << "[" << my_id << "] Received ACK. Standby.\n";
             state = State::WAIT_START; // Using WAIT_START as STANDBY
         } else if (state == State::WAIT_START && data.find("\"START\"") != std::string::npos) {
-            std::cout << "[" << my_id << "] Received START! Starting loop.\n";
             sock.sendTo("{\"type\":\"ACK\"}", config.logger_ip, config.logger_port);
             state = State::RUNNING;
         }
@@ -242,29 +255,29 @@ void Controller::mainLoop() {
         if (n <= 0) continue;
         recv_buf[n] = '\0';
         
-        std::string_view data(recv_buf, n);
-        if (data.find("\"STATUS\"") == std::string_view::npos) continue;
+        if (strstr(recv_buf, "\"STATUS\"") == nullptr) continue;
         
-        // Simple JSON parsing
-        auto getFloatVal = [&](const std::string& key, float default_val) {
-            size_t pos = data.find("\"" + key + "\":");
-            if (pos == std::string_view::npos) return default_val;
-            size_t start = data.find_first_of("0123456789.-", pos + key.length() + 3);
-            if (start == std::string_view::npos) return default_val;
-            size_t end = data.find_first_of(",}\n\r\t ", start);
-            // std::stof requires null-terminated string, so we copy the substring
-            // but we can just use strtof directly on the buffer
-            char* end_ptr;
-            return strtof(data.data() + start, &end_ptr);
+        // Simple JSON parsing without string allocation
+        auto getFloatVal = [&](const char* key, float default_val) {
+            char searchKey[32];
+            snprintf(searchKey, sizeof(searchKey), "\"%s\":", key);
+            char* pos = strstr(recv_buf, searchKey);
+            if (!pos) return default_val;
+            
+            pos += strlen(searchKey);
+            while (*pos == ' ' || *pos == '\t') pos++;
+            return strtof(pos, NULL);
         };
         
-        auto getIntVal = [&](const std::string& key, int default_val) {
-            size_t pos = data.find("\"" + key + "\":");
-            if (pos == std::string_view::npos) return default_val;
-            size_t start = data.find_first_of("0123456789-", pos + key.length() + 3);
-            if (start == std::string_view::npos) return default_val;
-            char* end_ptr;
-            return (int)strtol(data.data() + start, &end_ptr, 10);
+        auto getIntVal = [&](const char* key, int default_val) {
+            char searchKey[32];
+            snprintf(searchKey, sizeof(searchKey), "\"%s\":", key);
+            char* pos = strstr(recv_buf, searchKey);
+            if (!pos) return default_val;
+            
+            pos += strlen(searchKey);
+            while (*pos == ' ' || *pos == '\t') pos++;
+            return (int)strtol(pos, NULL, 10);
         };
 
         float y1 = getFloatVal("y1", 0.0f);
@@ -280,14 +293,20 @@ void Controller::mainLoop() {
         float T_f = my_psc * (config.t_base / 1000.0f);
         current_t += T_f;
         
-        history_t.push_back(current_t);
-        history_y1.push_back(y1);
-        history_y2.push_back(y2);
-
-        if (history_t.size() > history_len) {
-            history_t.erase(history_t.begin());
-            history_y1.erase(history_y1.begin());
-            history_y2.erase(history_y2.begin());
+        if (history_count < HISTORY_MAX) {
+            history_t[history_count] = current_t;
+            history_y1[history_count] = y1;
+            history_y2[history_count] = y2;
+            history_count++;
+        } else {
+            for (size_t i = 0; i < HISTORY_MAX - 1; ++i) {
+                history_t[i] = history_t[i+1];
+                history_y1[i] = history_y1[i+1];
+                history_y2[i] = history_y2[i+1];
+            }
+            history_t[HISTORY_MAX - 1] = current_t;
+            history_y1[HISTORY_MAX - 1] = y1;
+            history_y2[HISTORY_MAX - 1] = y2;
         }
 
         float y1_curr, y1_prev, y2_curr, y2_prev;
@@ -325,9 +344,6 @@ void Controller::mainLoop() {
             continue;
         }
 
-#ifndef DISABLE_RT_LOGGING
-        std::cout << "[" << my_id << "] Event received. Sending value: " << cmd_buf << "\n";
-#endif
         sock.sendTo(cmd_buf, cmd_len, config.model_ip, config.model_port);
     }
 }

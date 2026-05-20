@@ -1,5 +1,5 @@
-#include <iostream>
-#include <stdexcept>
+#include <cstdio>
+#include <cstdlib>
 #include "config/ConfigLoader.h"
 #include "Controller.h"
 #include "UDPSocket.h"
@@ -31,9 +31,7 @@ void setupRealTime(int core_id = 1) {
 #ifdef __linux__
     // 1. Lock memory to prevent page faults
     if (mlockall(MCL_CURRENT | MCL_FUTURE) == -1) {
-        std::cerr << "Warning: Failed to lock memory (mlockall). Run as root for real-time performance.\n";
-    } else {
-        std::cout << "Memory locked successfully.\n";
+        // Warning: Failed to lock memory (mlockall). Run as root for real-time performance.
     }
 
     // 2. Pre-fault our stack
@@ -43,11 +41,7 @@ void setupRealTime(int core_id = 1) {
     // Core 0 is usually busy with OS tasks, so we pin to core 1, 2, or 3.
     long num_cores = sysconf(_SC_NPROCESSORS_ONLN);
     if (core_id < num_cores) {
-        if (pinThreadToCore(core_id)) {
-            std::cout << "Thread pinned to CPU core " << core_id << " successfully.\n";
-        } else {
-            std::cerr << "Warning: Failed to pin thread to core " << core_id << ".\n";
-        }
+        pinThreadToCore(core_id);
     }
 
     // 4. Set real-time scheduler (SCHED_FIFO)
@@ -55,35 +49,25 @@ void setupRealTime(int core_id = 1) {
     memset(&param, 0, sizeof(param));
     param.sched_priority = 90; // High priority (1-99)
 
-    if (sched_setscheduler(0, SCHED_FIFO, &param) == -1) {
-        std::cerr << "Warning: Failed to set SCHED_FIFO scheduler. Run as root for real-time performance.\n";
-    } else {
-        std::cout << "SCHED_FIFO scheduler set successfully with priority " << param.sched_priority << ".\n";
-    }
+    sched_setscheduler(0, SCHED_FIFO, &param);
 #else
     (void)core_id; // Unused parameter warning fix
-    std::cout << "Real-time setup is only supported on Linux.\n";
 #endif
 }
 
 int main() {
-    try {
-        // Pin to core 2 by default for the coolant controller
-        setupRealTime(2);
+    // Pin to core 2 by default for the coolant controller
+    setupRealTime(2);
 
-        SystemConfig cfg = ConfigLoader::load("config.json");
-        UDPSocket sock(cfg.coolant_port);
-        
-        Controller controller(cfg, sock, cfg.coolant_id);
-        
-        while (true) {
-            controller.performHandshake();
-            std::cout << "[" << cfg.coolant_id << "] Control Loop Started.\n";
-            controller.mainLoop();
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "CRITICAL ERROR: " << e.what() << "\n";
-        return 1;
+    SystemConfig cfg = ConfigLoader::load("config.json");
+    UDPSocket sock(cfg.coolant_port);
+    
+    Controller controller(cfg, sock, cfg.coolant_id);
+    
+    while (true) {
+        controller.performHandshake();
+        controller.mainLoop();
     }
+    
     return 0;
 }
