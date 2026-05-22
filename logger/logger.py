@@ -101,6 +101,10 @@ class Logger:
                 sp_y1, sp_y2 = payload.get("sp_y1"), payload.get("sp_y2")
                 is_event_y1 = payload.get("is_event_y1", False)
                 is_event_y2 = payload.get("is_event_y2", False)
+                beta_y1 = payload.get("beta_y1", 0.0)
+                beta_y2 = payload.get("beta_y2", 0.0)
+                hmax_y1 = payload.get("hmax_y1", 0)
+                hmax_y2 = payload.get("hmax_y2", 0)
 
                 tolerance = 0.05
                 c_rst = "\033[0m"
@@ -118,7 +122,11 @@ class Logger:
                     u1,
                     u2,
                     int(is_event_y1),
-                    int(is_event_y2)
+                    int(is_event_y2),
+                    beta_y1,
+                    beta_y2,
+                    hmax_y1,
+                    hmax_y2
                 ])
                 self._log_file.flush()
             except Exception as e:
@@ -143,7 +151,11 @@ class Logger:
             "U1",
             "U2",
             "Is_Event_Y1",
-            "Is_Event_Y2"
+            "Is_Event_Y2",
+            "BETA_Y1",
+            "BETA_Y2",
+            "HMAX_Y1",
+            "HMAX_Y2"
         ])
         
 def main(config: dict):

@@ -243,17 +243,20 @@ class MessageConstructor {
             snprintf(buf, max_len, "{\"type\":\"ACK\"}");
         }
         
-        static void createStateMsg(float u1, float u2, float y1, float y2, float sp_y1, float sp_y2, int psc1, int psc2, bool is_event_y1, bool is_event_y2, char* buf, size_t max_len) {
+        static void createStateMsg(float u1, float u2, float y1, float y2, float sp_y1, float sp_y2, int psc1, int psc2, bool is_event_y1, bool is_event_y2, float beta_y1, float beta_y2, int hmax_y1, int hmax_y2, char* buf, size_t max_len) {
             snprintf(buf, max_len, 
                 "{\"type\":\"STATUS\", \"payload\": {"
                 "\"u1\": %.4f, \"u2\": %.4f, "
                 "\"y1\": %.4f, \"y2\": %.4f, "
                 "\"sp_y1\": %.4f, \"sp_y2\": %.4f, "
                 "\"psc1\": %d, \"psc2\": %d, "
-                "\"is_event_y1\": %s, \"is_event_y2\": %s}}",
+                "\"is_event_y1\": %s, \"is_event_y2\": %s, "
+                "\"beta_y1\": %.4f, \"beta_y2\": %.4f, "
+                "\"hmax_y1\": %d, \"hmax_y2\": %d}}",
                 u1, u2, y1, y2, sp_y1, sp_y2, psc1, psc2,
                 is_event_y1 ? "true" : "false",
-                is_event_y2 ? "true" : "false"
+                is_event_y2 ? "true" : "false",
+                beta_y1, beta_y2, hmax_y1, hmax_y2
             );
         }
 };
@@ -552,7 +555,7 @@ void SimulationTask() {
                 trigger = trigger_y1 || trigger_y2;
             }
 
-            MessageConstructor::createStateMsg(current_u1, current_u2, y1, y2, cfg.sp_y1, cfg.sp_y2, psc1, psc2, trigger_y1, trigger_y2, stateJson, sizeof(stateJson));
+            MessageConstructor::createStateMsg(current_u1, current_u2, y1, y2, cfg.sp_y1, cfg.sp_y2, psc1, psc2, trigger_y1, trigger_y2, cfg.beta_y1, cfg.beta_y2, cfg.hmax_y1, cfg.hmax_y2, stateJson, sizeof(stateJson));
 
             if (!sock->sendTo(stateJson, strlen(stateJson), cfg.logger_ip, cfg.logger_port)) {
                 connection_lost = true;
