@@ -15,6 +15,8 @@ public:
 
 private:
     void updateModel();
+    void cacheKmpc();
+    void calculateKmpc(int psc);
     Matrix<4, 6> getKmpc(int psc);
     void resampleStatesLagrange(float T_f, float& y1, float& y1_prev, float& y2, float& y2_prev);
     Matrix<6, 1> calculateFreeResponse(const std::array<float, 2>& y1_h, const std::array<float, 2>& y2_h, 
@@ -25,11 +27,10 @@ private:
     std::string my_id;
     State state;
 
-    // Cache up to psc = 6
     Matrix<4, 6> k_mpc_cache[6];
     bool k_mpc_valid[6];
 
-    static constexpr size_t HISTORY_MAX = 5;
+    static constexpr size_t HISTORY_MAX = 3;
     float history_t[HISTORY_MAX];
     float history_y1[HISTORY_MAX];
     float history_y2[HISTORY_MAX];

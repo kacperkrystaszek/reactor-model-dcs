@@ -13,6 +13,7 @@ Controller::Controller(SystemConfig config, UDPSocket& sock, const std::string& 
     }
     history_count = 0;
     updateModel();
+    cacheKmpc();
 }
 
 void Controller::updateModel() {
@@ -48,21 +49,17 @@ void Controller::updateModel() {
     }
 }
 
-Matrix<4, 6> Controller::getKmpc(int psc) {
-    if (psc >= 0 && psc < 6 && k_mpc_valid[psc]) {
-        return k_mpc_cache[psc];
-    }
-
+Matrix<4, 6> Controller::calculateKmpc(int psc){
     int n_steps = 3 * psc;
     
     // Calculate step responses locally without std::vector allocation
-    float g_11[300] = {0}, g_21[300] = {0};
-    float g_12[300] = {0}, g_22[300] = {0};
+    float g_11[n_steps] = {0}, g_21[n_steps] = {0};
+    float g_12[n_steps] = {0}, g_22[n_steps] = {0};
     
     // Step response for U1 = 1
     float y1 = 0.0f, y1_prev = 0.0f;
     float y2 = 0.0f, y2_prev = 0.0f;
-    for (int k = 0; k < n_steps && k < 300; ++k) {
+    for (int k = 0; k < n_steps; ++k) {
         float u1_now = 1.0f;
         float u1_old = (k == 0) ? 0.0f : 1.0f;
         
@@ -78,7 +75,7 @@ Matrix<4, 6> Controller::getKmpc(int psc) {
     // Step response for U2 = 1
     y1 = 0.0f; y1_prev = 0.0f;
     y2 = 0.0f; y2_prev = 0.0f;
-    for (int k = 0; k < n_steps && k < 300; ++k) {
+    for (int k = 0; k < n_steps; ++k) {
         float u2_now = 1.0f;
         float u2_old = (k == 0) ? 0.0f : 1.0f;
         
@@ -94,8 +91,6 @@ Matrix<4, 6> Controller::getKmpc(int psc) {
     int s1 = psc - 1;
     int s2 = 2 * psc - 1;
     int s3 = 3 * psc - 1;
-    
-    if (s3 >= 300) s3 = 299; // Safety limit
     
     Matrix<6, 4> G;
     G.data[0] = {g_11[s1], g_12[s1], 0.0f,     0.0f};
@@ -115,12 +110,21 @@ Matrix<4, 6> Controller::getKmpc(int psc) {
     
     Matrix<4, 4> invHTH = invert4x4(HTH);
     Matrix<4, 6> K = invHTH * GT;
-    
-    if (psc >= 0 && psc < 6) {
-        k_mpc_cache[psc] = K;
-        k_mpc_valid[psc] = true;
-    }
     return K;
+}
+
+Matrix<4, 6> Controller::cacheKmpc(){
+    int biggestHmax = std::max(config.hmax_y1, config.hmax_y2);
+    for(int i = 0; i < biggestHmax; i++){
+        k_mpc_cache[i] = calculateKmpc(i);
+        k_mpc_valid[i] = true;
+    }
+}
+
+Matrix<4, 6> Controller::getKmpc(int psc) {
+    if (psc >= 0 && psc < config.hmax_y1 && psc < config.hmax_y2 && k_mpc_valid[psc]) {
+        return k_mpc_cache[psc];
+    }
 }
 
 static float evaluateLagrange(const float* x, const float* y, size_t count, float target_x) {
