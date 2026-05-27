@@ -74,16 +74,18 @@ target_link_libraries(feed_controller_pi1 PRIVATE Threads::Threads rt)
 # Rygorystyczne flagi dla starej architektury ARMv6 (Raspberry Pi 1)
 # Zapobiegają błędowi "Illegal instruction"
 target_compile_options(feed_controller_pi1 PRIVATE 
-    -O2                       # Bezpieczniejsze O2 zamiast agresywnego O3 przy cross-kompilacji
-    -marm                     # Wymuszenie 32-bitowego trybu ARM
-    -march=armv6              # <--- KLUCZOWE: Wskazanie architektury z uname!
-    -mcpu=arm1176jzf-s        # Konkretny procesor RPi 1
-    -mfloat-abi=hard          # Hard-float, bo system to armhf
-    -mfpu=vfp                 # Jednostka wektorowa dla ARMv6
+    -O2 
+    -marm 
+    -march=armv6
+    -mcpu=arm1176jzf-s
+    -mfloat-abi=hard
+    -mfpu=vfp
 )
 
-# Wymuszamy, aby linker też wiedział, że budujemy na czyste ARMv6 i nie linkował rozszerzeń z v7
+# WYMUSZENIE STATYCZNEGO LINKOWANIA BIBLIOTEK STANDARDOWYCH
 target_link_options(feed_controller_pi1 PRIVATE
     -march=armv6
     -mcpu=arm1176jzf-s
+    -static-libgcc         # <--- LINKUJ STATYCZNIE BIBLIOTEKĘ C
+    -static-libstdc++      # <--- LINKUJ STATYCZNIE BIBLIOTEKĘ C++
 )
