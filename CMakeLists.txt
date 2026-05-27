@@ -74,8 +74,9 @@ target_link_libraries(feed_controller_pi1 PRIVATE Threads::Threads rt)
 # Rygorystyczne flagi dla starej architektury ARMv6 (Raspberry Pi 1)
 # Zapobiegają błędowi "Illegal instruction"
 target_compile_options(feed_controller_pi1 PRIVATE 
-    -O3 
-    -marm
+    -g                    # <--- TA FLAGA JEST KLUCZOWA DLA GDB
+    -O0                    # <--- Zmień na czas debugowania z -O3 na -O0 (wyłącza optymalizacje, kod będzie czytelny dla GDB)
+    -marm 
     -mcpu=arm1176jzf-s 
     -mfloat-abi=hard 
     -mfpu=vfp
