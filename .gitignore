@@ -1,7 +1,6 @@
 .vscode
-__pycache__
 build
-bin
+__pycache__
 logger/logs/*
 eb_MPC_general_sim/*
 *.pdf

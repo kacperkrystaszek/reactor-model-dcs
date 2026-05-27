@@ -16,7 +16,7 @@ public:
 private:
     void updateModel();
     void cacheKmpc();
-    void calculateKmpc(int psc);
+    Matrix<4, 6> calculateKmpc(int psc);
     Matrix<4, 6> getKmpc(int psc);
     void resampleStatesLagrange(float T_f, float& y1, float& y1_prev, float& y2, float& y2_prev);
     Matrix<6, 1> calculateFreeResponse(const std::array<float, 2>& y1_h, const std::array<float, 2>& y2_h, 

@@ -113,7 +113,7 @@ Matrix<4, 6> Controller::calculateKmpc(int psc){
     return K;
 }
 
-Matrix<4, 6> Controller::cacheKmpc(){
+void Controller::cacheKmpc(){
     int biggestHmax = std::max(config.hmax_y1, config.hmax_y2);
     for(int i = 0; i < biggestHmax; i++){
         k_mpc_cache[i] = calculateKmpc(i);
@@ -125,6 +125,7 @@ Matrix<4, 6> Controller::getKmpc(int psc) {
     if (psc >= 0 && psc < config.hmax_y1 && psc < config.hmax_y2 && k_mpc_valid[psc]) {
         return k_mpc_cache[psc];
     }
+    return k_mpc_cache[0];
 }
 
 static float evaluateLagrange(const float* x, const float* y, size_t count, float target_x) {
