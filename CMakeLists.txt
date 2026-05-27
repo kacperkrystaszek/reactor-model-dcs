@@ -63,7 +63,7 @@ target_compile_options(coolant_controller_rpi4 PRIVATE
 )
 
 # -------------------------------------------------------------------
-# 3. Cel: COOLANT_CONTROLLER -> RASPBERRY PI 1 (ARM1176JZF-S)
+# 3. Cel: FEED_CONTROLLER -> RASPBERRY PI 1 (ARM1176JZF-S)
 # -------------------------------------------------------------------
 add_executable(feed_controller_pi1 src/feed_main.cpp ${CONTROLLER_SOURCES})
 target_compile_definitions(feed_controller_pi1 PRIVATE DISABLE_RT_LOGGING)
@@ -72,20 +72,22 @@ target_compile_definitions(feed_controller_pi1 PRIVATE DISABLE_RT_LOGGING)
 target_link_libraries(feed_controller_pi1 PRIVATE Threads::Threads rt)
 
 # Rygorystyczne flagi dla starej architektury ARMv6 (Raspberry Pi 1)
-# Zapobiegają błędowi "Illegal instruction"
 target_compile_options(feed_controller_pi1 PRIVATE 
-    -O2 
+    -O1 
     -marm 
     -march=armv6
-    -mcpu=arm1176jzf-s
+    # -mcpu=arm1176jzf-s
     -mfloat-abi=hard
     -mfpu=vfp
+    -fno-builtin
 )
 
-# WYMUSZENIE STATYCZNEGO LINKOWANIA BIBLIOTEK STANDARDOWYCH
+# POPRAWIONE: Dodano przedrostki -Wl, dla bezpiecznego przekazania do linkera
 target_link_options(feed_controller_pi1 PRIVATE
     -march=armv6
-    -mcpu=arm1176jzf-s
-    -static-libgcc         # <--- LINKUJ STATYCZNIE BIBLIOTEKĘ C
-    -static-libstdc++      # <--- LINKUJ STATYCZNIE BIBLIOTEKĘ C++
+    # -mcpu=arm1176jzf-s
+    -mfloat-abi=hard
+    -mfpu=vfp
+    -static-libgcc
+    -static-libstdc++
 )
