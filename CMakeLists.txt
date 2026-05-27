@@ -75,7 +75,8 @@ target_link_libraries(feed_controller_pi1 PRIVATE Threads::Threads rt)
 # Zapobiegają błędowi "Illegal instruction"
 target_compile_options(feed_controller_pi1 PRIVATE 
     -O3 
+    -marm
     -mcpu=arm1176jzf-s 
-    -mfloat-abi=softfp 
+    -mfloat-abi=hard 
     -mfpu=vfp
 )
