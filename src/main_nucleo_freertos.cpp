@@ -460,7 +460,7 @@ void CommunicationTask(void *pvParameters) {
                 MessageConstructor::createAckMsg(ackBuf, sizeof(ackBuf));
                 sock.sendTo(ackBuf, strlen(ackBuf), "192.168.70.1", 5000);
                 continue;
-
+            }
             const char* pU1 = strstr(cmd, "\"u1\":");
             const char* pU2 = strstr(cmd, "\"u2\":");
 
