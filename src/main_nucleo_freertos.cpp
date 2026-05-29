@@ -3,11 +3,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <cstdio>
-
+#include <random>
 // FreeRTOS includes
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
+
+#include "stm32f2xx_hal.h"
 
 // LwIP includes for sockets (replace POSIX)
 #include "lwip/sockets.h"
@@ -55,7 +57,7 @@ struct SystemConfig {
     int hmax_y1;
     int hmax_y2;
     float lambda;
-    
+
     bool event_based;
 };
 
@@ -67,120 +69,115 @@ class ConfigLoader {
     public:
         static void loadFromString(const char* json, SystemConfig& cfg) {
             getString(json, "LOGGER_IP", cfg.logger_ip, sizeof(cfg.logger_ip));
-            cfg.logger_port = getInt(json, "LOGGER_PORT");
+            cfg.logger_port = getInt(json, "LOGGER_PORT", cfg.logger_port);
 
             getString(json, "MODEL_IP", cfg.model_ip, sizeof(cfg.model_ip));
-            cfg.model_port = getInt(json, "MODEL_PORT");
+            cfg.model_port = getInt(json, "MODEL_PORT", cfg.model_port);
             getString(json, "MODEL_ID", cfg.model_id, sizeof(cfg.model_id));
 
             getString(json, "FEED_CONTROLLER_IP", cfg.feed_ip, sizeof(cfg.feed_ip));
-            cfg.feed_port = getInt(json, "FEED_CONTROLLER_PORT");
+            cfg.feed_port = getInt(json, "FEED_CONTROLLER_PORT", cfg.feed_port);
             getString(json, "FEED_ID", cfg.feed_id, sizeof(cfg.feed_id));
 
             getString(json, "COOLANT_CONTROLLER_IP", cfg.coolant_ip, sizeof(cfg.coolant_ip));
-            cfg.coolant_port = getInt(json, "COOLANT_CONTROLLER_PORT");
+            cfg.coolant_port = getInt(json, "COOLANT_CONTROLLER_PORT", cfg.coolant_port);
             getString(json, "COOLANT_ID", cfg.coolant_id, sizeof(cfg.coolant_id));
 
-            cfg.sp_y1 = getFloat(json, "SP_Y1");
-            cfg.sp_y2 = getFloat(json, "SP_Y2");
-            cfg.sp_y1_step2 = getFloat(json, "SP_Y1_STEP2");
-            cfg.sp_y2_step2 = getFloat(json, "SP_Y2_STEP2");
-            cfg.y1_0 = getFloat(json, "Y1_0");
-            cfg.y2_0 = getFloat(json, "Y2_0");
-            cfg.beta_y1 = getFloat(json, "BETA_Y1");
-            cfg.beta_y2 = getFloat(json, "BETA_Y2");
-            cfg.hmax_y1 = getInt(json, "HMAX_Y1");
-            cfg.hmax_y2 = getInt(json, "HMAX_Y2");
-            cfg.t_base = getInt(json, "T_BASE");
-            cfg.alpha = getInt(json, "ALPHA");
-            
+            cfg.sp_y1 = getFloat(json, "SP_Y1", cfg.sp_y1);
+            cfg.sp_y2 = getFloat(json, "SP_Y2", cfg.sp_y2);
+            cfg.sp_y1_step2 = getFloat(json, "SP_Y1_STEP2", cfg.sp_y1_step2);
+            cfg.sp_y2_step2 = getFloat(json, "SP_Y2_STEP2", cfg.sp_y2_step2);
+            cfg.y1_0 = getFloat(json, "Y1_0", cfg.y1_0);
+            cfg.y2_0 = getFloat(json, "Y2_0", cfg.y2_0);
+            cfg.beta_y1 = getFloat(json, "BETA_Y1", cfg.beta_y1);
+            cfg.beta_y2 = getFloat(json, "BETA_Y2", cfg.beta_y2);
+            cfg.hmax_y1 = getInt(json, "HMAX_Y1", cfg.hmax_y1);
+            cfg.hmax_y2 = getInt(json, "HMAX_Y2", cfg.hmax_y2);
+            cfg.t_base = getInt(json, "T_BASE", cfg.t_base);
+            cfg.alpha = getInt(json, "ALPHA", cfg.alpha);
+
             if (cfg.alpha != 0) {
                 cfg.t_base = cfg.t_base / cfg.alpha;
             }
-            
+
             if (strstr(json, "\"LAMBDA\"") != nullptr) {
-                cfg.lambda = getFloat(json, "LAMBDA");
-            } else {
-                cfg.lambda = 0.5f;
+                cfg.lambda = getFloat(json, "LAMBDA", cfg.lambda);
             }
 
-            cfg.event_based = getBool(json, "EVENT_BASED");
+            cfg.event_based = getBool(json, "EVENT_BASED", cfg.event_based);
         }
 
     private:
         static void getString(const char* json, const char* key, char* out, size_t max_len) {
-            out[0] = '\0';
             char searchKey[32];
             snprintf(searchKey, sizeof(searchKey), "\"%s\"", key);
-            
             const char* pos = strstr(json, searchKey);
+
+            // KLUCZOWA POPRAWKA: Jeśli nie ma klucza w JSON, po prostu wychodzimy.
+            // NIE kasujemy zawartości 'out'!
             if (!pos) return;
 
             pos = strchr(pos, ':');
             if (!pos) return;
             pos = strchr(pos, '\"');
             if (!pos) return;
-            
+
             const char* start = pos + 1;
             const char* end = strchr(start, '\"');
             if (!end) return;
-            
+
             size_t len = end - start;
             if (len >= max_len) len = max_len - 1;
             strncpy(out, start, len);
             out[len] = '\0';
         }
 
-        static int getInt(const char* json, const char* key) {
+        static int getInt(const char* json, const char* key, int default_val) {
             char searchKey[32];
             snprintf(searchKey, sizeof(searchKey), "\"%s\"", key);
-            
             const char* pos = strstr(json, searchKey);
-            if (!pos) return 0;
+            if (!pos) return default_val;
 
             pos = strchr(pos, ':');
-            if (!pos) return 0;
-            
+            if (!pos) return default_val;
+
             const char* start = pos + 1;
-            while (*start == ' ' || *start == '\t') start++;
-            
+            while (*start == ' ' || *start == '\t' || *start == '\"') start++;
+
             return atoi(start);
         }
 
-        static float getFloat(const char* json, const char* key) {
+        static float getFloat(const char* json, const char* key, float default_val) {
             char searchKey[32];
             snprintf(searchKey, sizeof(searchKey), "\"%s\"", key);
-            
             const char* pos = strstr(json, searchKey);
-            if (!pos) return 0.0f;
+            if (!pos) return default_val;
 
             pos = strchr(pos, ':');
-            if (!pos) return 0.0f;
-            
+            if (!pos) return default_val;
+
             const char* start = pos + 1;
-            while (*start == ' ' || *start == '\t') start++;
-            
+            while (*start == ' ' || *start == '\t' || *start == '\"') start++;
+
             return atof(start);
         }
 
-        static bool getBool(const char* json, const char* key) {
+        static bool getBool(const char* json, const char* key, bool default_val) {
             char searchKey[32];
             snprintf(searchKey, sizeof(searchKey), "\"%s\"", key);
-            
             const char* pos = strstr(json, searchKey);
-            if (!pos) return false;
+            if (!pos) return default_val;
 
             pos = strchr(pos, ':');
-            if (!pos) return false;
-            
+            if (!pos) return default_val;
+
             const char* startTrue = strstr(pos, "true");
             const char* startFalse = strstr(pos, "false");
 
-            if (startTrue && (!startFalse || startTrue < startFalse)) {
-                return true;
-            }
-            
-            return false;
+            if (startTrue && (!startFalse || startTrue < startFalse)) return true;
+            if (startFalse && (!startTrue || startFalse < startTrue)) return false;
+
+            return default_val;
         }
 };
 
@@ -189,13 +186,13 @@ class MessageConstructor {
         static void createInitMsg(const SystemConfig& cfg, char* buf, size_t max_len) {
             snprintf(buf, max_len, "{\"type\":\"INIT\", \"id\": \"%s\"}", cfg.model_id);
         }
-        
+
         static void createAckMsg(char* buf, size_t max_len) {
             snprintf(buf, max_len, "{\"type\":\"ACK\"}");
         }
-        
+
         static void createStateMsg(float u1, float u2, float y1, float y2, float sp_y1, float sp_y2, int psc1, int psc2, bool is_event_y1, bool is_event_y2, float beta_y1, float beta_y2, int hmax_y1, int hmax_y2, char* buf, size_t max_len) {
-            snprintf(buf, max_len, 
+            snprintf(buf, max_len,
                 "{\"type\":\"STATUS\", \"payload\": {"
                 "\"u1\": %.4f, \"u2\": %.4f, "
                 "\"y1\": %.4f, \"y2\": %.4f, "
@@ -235,7 +232,7 @@ class Reactor {
                 y2[i] = initial_y2;
                 u1[i] = initial_u1;
                 u2[i] = initial_u2;
-            }   
+            }
             float alpha = cfg.alpha == 0 ? 1.0f : cfg.alpha;
             float current_T_BASE = cfg.t_base / alpha;
             float T_min = (current_T_BASE / 1000.0f) / 60.0f;
@@ -261,13 +258,13 @@ class Reactor {
         }
 
         void step(float u1_in, float u2_in, float& y1_out, float& y2_out) {
-            float y1_new = 
-                Amatrix[0][0] * y1[0] + Amatrix[0][1] * y1[1] + 
+            float y1_new =
+                Amatrix[0][0] * y1[0] + Amatrix[0][1] * y1[1] +
                 Bmatrix[0][0] * u1[0] + Bmatrix[0][1] * u1[1] +
                 Bmatrix[1][0] * u2[0] + Bmatrix[1][1] * u2[1];
 
-            float y2_new = 
-                Amatrix[3][0] * y2[0] + Amatrix[3][1] * y2[1] + 
+            float y2_new =
+                Amatrix[3][0] * y2[0] + Amatrix[3][1] * y2[1] +
                 Bmatrix[2][0] * u1[0] + Bmatrix[2][1] * u1[1] +
                 Bmatrix[3][0] * u2[0] + Bmatrix[3][1] * u2[1];
 
@@ -292,46 +289,53 @@ class UDPSocket {
         bool initialized;
 
     public:
-        UDPSocket(int port) : initialized(false) {
+        // 1. Pusty konstruktor - zero operacji sprzętowych!
+        UDPSocket() : sockfd(-1), initialized(false) {
+            memset(&my_addr, 0, sizeof(my_addr));
+        }
+
+        ~UDPSocket() {
+            if (initialized && sockfd >= 0) {
+                lwip_close(sockfd);
+            }
+        }
+
+        // 2. Właściwa inicjalizacja sprzętowa (wywoływana z wątku RTOS)
+        bool begin(int port) {
+            if (initialized) return true;
+
             sockfd = lwip_socket(AF_INET, SOCK_DGRAM, 0);
             if (sockfd < 0) {
-                return;
+                return false;
             }
 
-            memset(&my_addr, 0, sizeof(my_addr));
             my_addr.sin_family = AF_INET;
             my_addr.sin_addr.s_addr = INADDR_ANY;
             my_addr.sin_port = lwip_htons(port);
 
             if (lwip_bind(sockfd, (const struct sockaddr*)&my_addr, sizeof(my_addr)) < 0) {
                 lwip_close(sockfd);
-                return;
+                sockfd = -1;
+                return false;
             }
 
-            // Set socket timeout
             struct timeval tv;
             tv.tv_sec = 0;
             tv.tv_usec = 100000;
             lwip_setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-            // Priority and Type of Service optimizations
             int tos = IPTOS_LOWDELAY;
             lwip_setsockopt(sockfd, IPPROTO_IP, IP_TOS, &tos, sizeof(tos));
-            
-            initialized = true;
-        }
 
-        ~UDPSocket() {
-            if (initialized) {
-                lwip_close(sockfd);
-            }
+            initialized = true;
+            return true;
         }
 
         bool isInitialized() const { return initialized; }
 
         bool sendTo(const char* msg, size_t len, const char* ip, int port) {
             if (!initialized) return false;
-            
+
             struct sockaddr_in dest_addr;
             memset(&dest_addr, 0, sizeof(dest_addr));
             dest_addr.sin_family = AF_INET;
@@ -339,60 +343,95 @@ class UDPSocket {
             dest_addr.sin_addr.s_addr = inet_addr(ip);
 
             ssize_t res = lwip_sendto(sockfd, msg, len, 0, (const struct sockaddr*)&dest_addr, sizeof(dest_addr));
-            if (res < 0) {
-                return false;
-            }
-            return true;
+            return (res >= 0);
         }
 
         int recvFrom(char* buffer, int max_len) {
             if (!initialized) return -1;
             struct sockaddr_in client_address;
             socklen_t len = sizeof(client_address);
-            int n = lwip_recvfrom(sockfd, buffer, max_len, 0, (struct sockaddr*)&client_address, &len);
-            return n;
+            return lwip_recvfrom(sockfd, buffer, max_len, 0, (struct sockaddr*)&client_address, &len);
         }
 };
 
+class STM32HardwareRNG {
+private:
+    RNG_HandleTypeDef* hrng_ptr;
+
+public:
+    using result_type = uint32_t;
+
+    STM32HardwareRNG(RNG_HandleTypeDef* handle) : hrng_ptr(handle) {}
+
+    static constexpr result_type min() { return 0; }
+    static constexpr result_type max() { return 0xFFFFFFFF; }
+
+    result_type operator()() {
+        uint32_t random_number = 0;
+        HAL_RNG_GenerateRandomNumber(hrng_ptr, &random_number);
+        return random_number;
+    }
+};
+
+class NoiseGen {
+private:
+    STM32HardwareRNG hw_gen;
+    std::normal_distribution<float> distY1;
+    std::normal_distribution<float> distY2;
+
+public:
+    NoiseGen(RNG_HandleTypeDef* hrng_handle, float dev1, float dev2)
+        : hw_gen(hrng_handle),
+          distY1(0.0f, dev1),
+          distY2(0.0f, dev2) {}
+
+    float getY1Noise() {
+        return distY1(hw_gen);
+    }
+
+    float getY2Noise() {
+        return distY2(hw_gen);
+    }
+};
 // ==========================================
 // 5. Main RTOS Application Logic
 // ==========================================
-
+extern RNG_HandleTypeDef hrng;
 SystemConfig cfg;
-UDPSocket* sock = nullptr;
+UDPSocket sock;
 
 float u1_global = 0.0f;
 float u2_global = 0.0f;
 
 SemaphoreHandle_t mutex_u;
 std::atomic<bool> in_handshake(true);
+std::atomic<bool> connection_lost(false);
 
 void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
     enum State state = INIT;
     char buffer[1024];
-    
+
     while (state < State::WAIT_START) {
         if (state == State::INIT) {
             MessageConstructor::createInitMsg(cfg_ref, buffer, sizeof(buffer));
-            sock_ref.sendTo(buffer, strlen(buffer), cfg_ref.logger_ip, cfg_ref.logger_port);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            sock_ref.sendTo(buffer, strlen(buffer), cfg_ref.logger_ip, 5000);
+            vTaskDelay(pdMS_TO_TICKS(500));
         }
 
         int n = sock_ref.recvFrom(buffer, sizeof(buffer) - 1);
         if (n > 0) {
             buffer[n] = '\0';
-            
-            if (state == State::INIT && strstr(buffer, "\"ACK\"") != nullptr) {
-                if (strstr(buffer, "\"config\"") != nullptr) {
+            if (state == State::INIT && strstr(buffer, "ACK") != nullptr) {
+                if (strstr(buffer, "config") != nullptr) {
                     ConfigLoader::loadFromString(buffer, cfg_ref);
                 }
-
                 state = State::WAIT_ACK;
             }
-            else if (state == State::WAIT_ACK && strstr(buffer, "\"START\"") != nullptr) {
+            else if (state == State::WAIT_ACK && strstr(buffer, "ACK") == nullptr) {
                 MessageConstructor::createAckMsg(buffer, sizeof(buffer));
-                sock_ref.sendTo(buffer, strlen(buffer), cfg_ref.logger_ip, cfg_ref.logger_port);
+                sock_ref.sendTo(buffer, strlen(buffer), cfg_ref.logger_ip, 5000);
                 state = State::WAIT_START;
+                connection_lost.store(false);
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(50));
@@ -400,20 +439,28 @@ void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
     }
 }
 
-// Communication Task - Acts like an interrupt for receiving data
 void CommunicationTask(void *pvParameters) {
     char cmd[512];
-    
+
     while (true) {
-        if (sock == nullptr || in_handshake.load() || !sock->isInitialized()) {
+        if (!sock.isInitialized() || in_handshake.load()) {
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
         }
 
-        int n = sock->recvFrom(cmd, sizeof(cmd) - 1);
-        
+        int n = sock.recvFrom(cmd, sizeof(cmd) - 1);
         if (n > 0) {
             cmd[n] = '\0';
+            if (strstr(cmd "RESTART") != nullptr) {
+                connection_lost.store(true);
+                continue;
+            }
+            if (strstr(cmd, "START") != nullptr || strstr(cmd, "\"type\": 2") != nullptr || strstr(cmd, "\"type\":2") != nullptr) {
+                char ackBuf[64];
+                MessageConstructor::createAckMsg(ackBuf, sizeof(ackBuf));
+                sock.sendTo(ackBuf, strlen(ackBuf), "192.168.70.1", 5000);
+                continue;
+
             const char* pU1 = strstr(cmd, "\"u1\":");
             const char* pU2 = strstr(cmd, "\"u2\":");
 
@@ -425,22 +472,28 @@ void CommunicationTask(void *pvParameters) {
     }
 }
 
-// Simulation Task - Periodically calculates the simulation state
 void SimulationTask(void *pvParameters) {
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    while (!sock.begin(cfg.model_port)) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+
     char stateJson[512];
-    
+
     while (true) {
-        if (sock == nullptr || !sock->isInitialized()) {
+        if (!sock.isInitialized()) {
             vTaskDelay(pdMS_TO_TICKS(1000));
+            sock.begin(cfg.model_port);
             continue;
         }
 
-        // Handshake phase
         in_handshake.store(true);
-        performHandshake(*sock, cfg);
+        performHandshake(sock, cfg);
         in_handshake.store(false);
 
         Reactor reactor(cfg, cfg.y1_0, cfg.y2_0, 0.0f, 0.0f);
+        NoiseGen generator(&hrng, 0.002f, 0.002f);
 
         xSemaphoreTake(mutex_u, portMAX_DELAY);
         u1_global = 0.0f;
@@ -451,7 +504,7 @@ void SimulationTask(void *pvParameters) {
         int psc1 = 1; int psc2 = 1;
         float sim_time = 0.0f;
         float t_step_min = 0.0f;
-        
+
         if (cfg.alpha != 0) {
             t_step_min = (cfg.t_base / 1000.0f) / 60.0f;
         }
@@ -459,9 +512,7 @@ void SimulationTask(void *pvParameters) {
         TickType_t xLastWakeTime = xTaskGetTickCount();
         const TickType_t xFrequency = pdMS_TO_TICKS(cfg.t_base);
 
-        bool connection_lost = false;
-
-        while (!connection_lost) {
+        while (!connection_lost.load()) {
             // Block until exactly the next cycle
             vTaskDelayUntil(&xLastWakeTime, xFrequency);
 
@@ -478,9 +529,9 @@ void SimulationTask(void *pvParameters) {
 
             reactor.step(current_u1, current_u2, y1, y2);
 
-            if (sim_time >= 5.0f) {
-                y1 += ((rand() % 2000) / 1000.0f - 1.0f) * 0.01f;
-                y2 += ((rand() % 2000) / 1000.0f - 1.0f) * 0.01f;
+            if (sim_time >= 4.0f) {
+                y1 += generator.getY1Noise();
+                y2 += generator.getY2Noise();
             }
 
             bool trigger = true;
@@ -495,14 +546,9 @@ void SimulationTask(void *pvParameters) {
 
             MessageConstructor::createStateMsg(current_u1, current_u2, y1, y2, cfg.sp_y1, cfg.sp_y2, psc1, psc2, trigger_y1, trigger_y2, cfg.beta_y1, cfg.beta_y2, cfg.hmax_y1, cfg.hmax_y2, stateJson, sizeof(stateJson));
 
-            if (!sock->sendTo(stateJson, strlen(stateJson), cfg.logger_ip, cfg.logger_port)) {
-                connection_lost = true;
-                break;
-            }
-
             if (trigger) {
-                sock->sendTo(stateJson, strlen(stateJson), cfg.feed_ip, cfg.feed_port);
-                sock->sendTo(stateJson, strlen(stateJson), cfg.coolant_ip, cfg.coolant_port);
+                sock.sendTo(stateJson, strlen(stateJson), cfg.feed_ip, cfg.feed_port);
+                sock.sendTo(stateJson, strlen(stateJson), cfg.coolant_ip, cfg.coolant_port);
             }
 
             if (trigger_y1) {
@@ -530,15 +576,15 @@ extern "C" void app_main() {
     strncpy(cfg.logger_ip, "192.168.70.1", sizeof(cfg.logger_ip) - 1);
     cfg.logger_ip[sizeof(cfg.logger_ip) - 1] = '\0';
     cfg.logger_port = 5000;
-    
+
     strncpy(cfg.model_id, "model", sizeof(cfg.model_id) - 1);
     cfg.model_id[sizeof(cfg.model_id) - 1] = '\0';
 
-    sock = new UDPSocket(cfg.model_port);
+
     mutex_u = xSemaphoreCreateMutex();
 
     if (mutex_u != NULL) {
-        xTaskCreate(CommunicationTask, "CommTask", 4096, NULL, tskIDLE_PRIORITY + 2, NULL);
-        xTaskCreate(SimulationTask, "SimTask", 8192, NULL, tskIDLE_PRIORITY + 1, NULL);
+        xTaskCreate(CommunicationTask, "CommTask", 1024, NULL, tskIDLE_PRIORITY, NULL);
+        xTaskCreate(SimulationTask, "SimTask", 2048, NULL, tskIDLE_PRIORITY, NULL);
     }
 }
