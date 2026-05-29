@@ -451,7 +451,7 @@ void CommunicationTask(void *pvParameters) {
         int n = sock.recvFrom(cmd, sizeof(cmd) - 1);
         if (n > 0) {
             cmd[n] = '\0';
-            if (strstr(cmd "RESTART") != nullptr) {
+            if (strstr(cmd, "RESTART") != nullptr) {
                 connection_lost.store(true);
                 continue;
             }
