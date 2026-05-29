@@ -90,7 +90,7 @@ class Logger:
         breakLoop = False
         while True:
             if breakLoop:
-
+                self._log_file.close()
                 break
             data, addr = self._sock.recvfrom(4096)
             if zero_time is None:
@@ -170,8 +170,8 @@ class Logger:
             "HMAX_Y2"
         ])
         
-def main(config: dict):
-    logger = Logger(config)
+def main(logger: Logger):
+    print(f"RUNNING SIM FOR: EB-{logger.config['EVENT_BASED']} ALPHA-{logger.config['ALPHA']} BETA-{logger.config['BETA_Y1']}")
     print("Waiting for components to Initialize...")
     logger.init_phase()
 
@@ -184,16 +184,20 @@ def main(config: dict):
     print("\n--- SYSTEM RUNNING - MONITORING MODE ---")
     logger.monitoring_phase()
 
+    for addr in logger._clients_addr.values():
+        logger._sock.sendto(json.dumps({"type": MessageType.RESTART.value}).encode(), addr)
+
 if __name__ == "__main__":
     loaded_config = load_config()
+    logger = Logger(loaded_config)
     for ebValue in [False, True]:
         for alphaValue in [1, 100, 250, 500]:
             loaded_config['EVENT_BASED'] = ebValue
             loaded_config['ALPHA'] = alphaValue
             if not ebValue:
-                main(loaded_config)
+                main(logger)
             else:
                 for betaValue in [0.005, 0.01, 0.015]:
                     loaded_config['BETA_Y1'] = betaValue
                     loaded_config['BETA_Y2'] = betaValue
-                    main(loaded_config)
+                    main(logger)
