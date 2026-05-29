@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.MessageType import MessageType
 from utils.utils import load_config
-from controller.gpc_config import T_BASE, EVENT_BASED, ALPHA
+from controller.gpc_config import T_BASE, EVENT_BASED, ALPHA, BETA
 
 class Logger:
     def __init__(self, config: dict):
@@ -30,6 +30,9 @@ class Logger:
         return sock
 
     def init_phase(self):
+        self._clients_addr.clear()
+        self._log_file = None
+        self.csv_writer = None
         while len(self._clients_addr) < len(self.EXPECTED_CLIENTS):
             try:
                 data, addr = self._sock.recvfrom(1024)
@@ -83,8 +86,18 @@ class Logger:
     def monitoring_phase(self):
         print(f"TIMESTAMP  | Y1SP     Y2SP     | Y1       Y2       | U1       U2       | EVENT")
         self.init_log_file()
+        zero_time = None
+        breakLoop = False
         while True:
+            if breakLoop:
+
+                break
             data, addr = self._sock.recvfrom(4096)
+            if zero_time is None:
+                zero_time = time.perf_counter()
+            ts = time.perf_counter() - zero_time
+            if ts > 360:
+                breakLoop = True
             if addr not in list(self._clients_addr.values()):
                 continue
             try:
@@ -95,7 +108,6 @@ class Logger:
                 if payload is None:
                     continue
                 
-                ts = datetime.datetime.now().strftime('%H:%M:%S')
                 y1, y2 = payload.get("y1"), payload.get("y2")
                 u1, u2 = payload.get("u1"), payload.get("u2")
                 sp_y1, sp_y2 = payload.get("sp_y1"), payload.get("sp_y2")
@@ -136,7 +148,7 @@ class Logger:
     def init_log_file(self):
         timestamp = datetime.datetime.now()
         timestamp_str = timestamp.strftime("%d-%m-%Y_%H-%M-%S")
-        main_part = f"data_{timestamp_str}_ALPHA-{ALPHA}_EB_{EVENT_BASED}" 
+        main_part = f"data_{timestamp_str}_BETA-{BETA}_ALPHA-{ALPHA}_EB_{EVENT_BASED}" 
         filename = f"{main_part}.csv"
         path = os.path.join("logger", "logs", main_part)
         os.makedirs(path, exist_ok=True)
@@ -160,7 +172,6 @@ class Logger:
         
 def main(config: dict):
     logger = Logger(config)
-    
     print("Waiting for components to Initialize...")
     logger.init_phase()
 
@@ -175,4 +186,14 @@ def main(config: dict):
 
 if __name__ == "__main__":
     loaded_config = load_config()
-    main(loaded_config)
+    for ebValue in [False, True]:
+        for alphaValue in [1, 100, 250, 500]:
+            loaded_config['EVENT_BASED'] = ebValue
+            loaded_config['ALPHA'] = alphaValue
+            if not ebValue:
+                main(loaded_config)
+            else:
+                for betaValue in [0.005, 0.01, 0.015]:
+                    loaded_config['BETA_Y1'] = betaValue
+                    loaded_config['BETA_Y2'] = betaValue
+                    main(loaded_config)

@@ -260,6 +260,7 @@ void Controller::mainLoop() {
         if (n <= 0) continue;
         recv_buf[n] = '\0';
         
+        if (strstr(recv_buf, "\"RESTART\"") != nullptr) break;
         if (strstr(recv_buf, "\"STATUS\"") == nullptr) continue;
         
         // Simple JSON parsing without string allocation

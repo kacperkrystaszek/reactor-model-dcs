@@ -6,3 +6,4 @@ class MessageType(Enum):
     START = "START"
     ACK = "ACK"
     STATUS = "STATUS"
+    RESTART = "RESTART"
