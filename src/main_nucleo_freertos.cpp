@@ -412,12 +412,12 @@ void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
         if (state == State::INIT) {
             MessageConstructor::createInitMsg(buffer, sizeof(buffer));
             sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
         if (state == State::WAIT_START){
             MessageConstructor::createAckMsg(buffer, sizeof(buffer));
             sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
 
         int n = sock_ref.recvFrom(buffer, sizeof(buffer) - 1);
@@ -439,7 +439,7 @@ void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
                 state = State::WAIT_START;
                 continue;
             }
-            if (state == State::WAIT_START && strstr(buffer, "START") == nullptr) {
+            if (state == State::WAIT_START && strstr(buffer, "START") != nullptr) {
                 need_restart.store(false);
                 MessageConstructor::createAckMsg(buffer, sizeof(buffer));
                 sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);

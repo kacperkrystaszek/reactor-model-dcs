@@ -18,7 +18,7 @@ from utils.utils import load_config
 class Logger:
     def __init__(self, config: dict):
         self.config = config
-        self.EXPECTED_CLIENTS = ["192.168.70.2", "192.168.70.3", "192.168.70.5"]
+        self.EXPECTED_CLIENTS = [('192.168.70.3', 5002), ('192.168.70.2', 5002), ('192.168.70.5', 5000)]
         self._clients = {}
         self._sock = self.start_socket()
         self._log_file = None
@@ -76,6 +76,11 @@ class Logger:
                 data, addr = self._sock.recvfrom(1024)
                 msg = json.loads(data.decode())
 
+                if msg.get("type") == MessageType.INIT.value:
+                    ack_msg = json.dumps({"type": MessageType.ACK.value, "config": self.config})
+                    self._sock.sendto(ack_msg.encode(), addr)
+                    continue
+
                 if msg.get("type") != MessageType.ACK.value:
                     attempts += 1
                     continue
@@ -109,6 +114,7 @@ class Logger:
                     msg = json.loads(data)
                     if msg.get("type") == MessageType.ACK.value:
                         self._clients[target_addr] = States.RUNNING
+                        print(f"[START_PHASE] {target_addr} is in RUNNING state.")
                         break
                 except socket.timeout:
                     print(f"[START_PHASE] {target_addr} not responding. Attempt: {attempts}")
@@ -313,6 +319,7 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, firstRun, scenario, rp1Load, rp4Load, b
         time.sleep(2)
         run_controller(rpi1Ip)
         run_controller(rpi4Ip)
+        send_restart(logger, "192.168.70.5")
 
     init_thread.join()
     if not logger._init_phase_result:
@@ -326,6 +333,17 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, firstRun, scenario, rp1Load, rp4Load, b
     time.sleep(2)
     if not logger.start_phase():
         return False
+
+    if rp1Load:
+        if scenario == "CPULOAD" or scenario == "COMBINEDALL":
+            apply_cpu_load(RP1IP)
+        if scenario != "STANDARD" and scenario != "CPULOAD":
+            apply_network_load(RP1IP, scenario)
+    if rp4Load:
+        if scenario == "CPULOAD" or scenario == "COMBINEDALL":
+            apply_cpu_load(RP4IP)
+        if scenario != "STANDARD" and scenario != "CPULOAD":
+            apply_network_load(RP4IP, scenario)
 
     logger._sock.settimeout(10)
     print("\n--- SYSTEM RUNNING - MONITORING MODE ---")
@@ -367,8 +385,6 @@ def run_investigation(logger, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
                     print("[RUN_INVESTIGATION] Timeout! Performing hard reset...")
                     reset_node(rpi1Ip)
                     reset_node(rpi4Ip)
-                    clear_buffer(logger)
-                    send_restart(logger, "192.168.70.5")
                     firstRun = True
                 firstRun = False
             else:
@@ -379,8 +395,6 @@ def run_investigation(logger, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
                         print("[RUN_INVESTIGATION] Timeout! Performing hard reset...")
                         reset_node(rpi1Ip)
                         reset_node(rpi4Ip)
-                        clear_buffer(logger)
-                        send_restart(logger, "192.168.70.5")
                         firstRun = True
                     firstRun = False
     
@@ -399,35 +413,31 @@ if __name__ == "__main__":
     reset_node(RP1IP)
     reset_node(RP4IP)
 
-    # scenario = "STANDARD"
-    # run_investigation(logger, scenario, None, None, RP1IP, RP4IP)
+    scenario = "STANDARD"
+    run_investigation(logger, scenario, None, None, RP1IP, RP4IP)
 
-    # scenario = "CPULOAD"
-    # for rpi1Load in [True]:
-    #     for rpi4Load in [False, True]:
-    #         if rpi1Load:
-    #             apply_cpu_load(RP1IP)
-    #         if rpi4Load:
-    #             apply_cpu_load(RP4IP)
-    #         run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    scenario = "CPULOAD"
+    for rpi1Load in [True]:
+        for rpi4Load in [False, True]:
+            run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    # scenario = "CONSTANTDELAY"
-    # for rpi1Load in [True]:
-    #     for rpi4Load in [False, True]:
-    #         if rpi1Load:
-    #             apply_network_load(RP1IP, scenario)
-    #         if rpi4Load:
-    #             apply_network_load(RP4IP, scenario)
-    #         run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    scenario = "CONSTANTDELAY"
+    for rpi1Load in [True]:
+        for rpi4Load in [False, True]:
+            if rpi1Load:
+                apply_network_load(RP1IP, scenario)
+            if rpi4Load:
+                apply_network_load(RP4IP, scenario)
+            run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    # scenario = "VARIABLEDELAY"
-    # for rpi1Load in [True]:
-    #     for rpi4Load in [False, True]:
-    #         if rpi1Load:
-    #             apply_network_load(RP1IP, scenario)
-    #         if rpi4Load:
-    #             apply_network_load(RP4IP, scenario)
-    #         run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    scenario = "VARIABLEDELAY"
+    for rpi1Load in [True]:
+        for rpi4Load in [False, True]:
+            if rpi1Load:
+                apply_network_load(RP1IP, scenario)
+            if rpi4Load:
+                apply_network_load(RP4IP, scenario)
+            run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
     scenario = "PACKETLOSS"
     for rpi1Load in [True]:

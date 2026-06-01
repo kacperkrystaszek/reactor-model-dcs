@@ -99,7 +99,7 @@ Matrix<4, 6> Controller::calculateKmpc(int psc){
     Matrix<4, 6> GT = G.transpose();
     Matrix<4, 4> HTH = GT * G;
     
-    float lambda = config.lambda;
+    float lambda = 0.5;
     for (int i = 0; i < 4; ++i) {
         HTH.data[i][i] += lambda;
     }
@@ -220,8 +220,13 @@ void Controller::performHandshake() {
     char buffer[1024];
     
     struct timespec ts;
-    ts.tv_sec = 1;
-    ts.tv_nsec = 0; //0.1s;
+    if (my_id == "coolant"){
+        ts.tv_sec = 2;
+        ts.tv_nsec = 0; //0.1s;
+    } else {
+        ts.tv_sec = 1;
+        ts.tv_nsec = 0; //0.1s;
+    }
 
     while (state != State::RUNNING) {
         if (state == State::INIT) {
