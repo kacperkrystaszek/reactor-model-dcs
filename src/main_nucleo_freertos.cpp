@@ -372,22 +372,30 @@ public:
 
 class NoiseGen {
 private:
-    STM32HardwareRNG hw_gen;
+    std::mt19937 prng; // Szybki generator pseudolosowy
     std::normal_distribution<float> distY1;
     std::normal_distribution<float> distY2;
 
 public:
     NoiseGen(RNG_HandleTypeDef* hrng_handle, float dev1, float dev2)
-        : hw_gen(hrng_handle),
-          distY1(0.0f, dev1),
-          distY2(0.0f, dev2) {}
+        : distY1(0.0f, dev1),
+          distY2(0.0f, dev2) {
+        
+        uint32_t seed_val = 12345; // Awaryjne ziarno
+        if (hrng_handle != nullptr) {
+            // Pobieramy prawdziwą losowość sprzętową TYLKO RAZ
+            HAL_RNG_GenerateRandomNumber(hrng_handle, &seed_val);
+        }
+        // Inicjalizujemy szybki algorytm
+        prng.seed(seed_val);
+    }
 
     float getY1Noise() {
-        return distY1(hw_gen);
+        return distY1(prng);
     }
 
     float getY2Noise() {
-        return distY2(hw_gen);
+        return distY2(prng);
     }
 };
 // ==========================================
@@ -485,7 +493,7 @@ void CommunicationTask(void *pvParameters) {
 void SimulationTask(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(2000));
 
-    while (!sock.begin(5000)) {
+    while (!sock.begin(5001)) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
@@ -494,7 +502,7 @@ void SimulationTask(void *pvParameters) {
     while (true) {
         if (!sock.isInitialized()) {
             vTaskDelay(pdMS_TO_TICKS(1000));
-            sock.begin(5000);
+            sock.begin(5001);
             continue;
         }
 

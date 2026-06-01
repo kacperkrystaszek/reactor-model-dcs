@@ -18,7 +18,7 @@ from utils.utils import load_config
 class Logger:
     def __init__(self, config: dict):
         self.config = config
-        self.EXPECTED_CLIENTS = [('192.168.70.3', 5002), ('192.168.70.2', 5002), ('192.168.70.5', 5000)]
+        self.EXPECTED_CLIENTS = [('192.168.70.3', 5003), ('192.168.70.2', 5002), ('192.168.70.5', 5001)]
         self._clients = {}
         self._sock = self.start_socket()
         self._log_file = None
@@ -138,7 +138,6 @@ class Logger:
             except socket.timeout:
                 filepath = self._log_file.name
                 self._log_file.close()
-                os.remove(filepath)
                 return False
             if zero_time is None:
                 zero_time = time.perf_counter()
@@ -172,7 +171,7 @@ class Logger:
                 ev1_str = "E1" if is_event_y1 else "  "
                 ev2_str = "E2" if is_event_y2 else "  "
                 if lastMoment == 0 or ts - lastMoment > 10:
-                    print(f"{ts:<10} | {sp_y1:<8.4f} {sp_y2:<8.4f} | {c_y1}{y1:<8.4f}{c_rst} {c_y2}{y2:<8.4f}{c_rst} | {u1:<8.4f} {u2:<8.4f} | {ev1_str} {ev2_str}")
+                    print(f"{ts:<3} | {sp_y1:<8.4f} {sp_y2:<8.4f} | {c_y1}{y1:<8.4f}{c_rst} {c_y2}{y2:<8.4f}{c_rst} | {u1:<8.4f} {u2:<8.4f} | {ev1_str} {ev2_str}")
                     lastMoment += 10
                 self.csv_writer.writerow([
                     ts,
@@ -312,6 +311,8 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, firstRun, scenario, rp1Load, rp4Load, b
     print(f"RUNNING SIM FOR: SCENARIO-{scenario} RP1LOAD-{rp1Load} RP4LOAD-{rp4Load} EB-{logger.config['EVENT_BASED']} ALPHA-{logger.config['ALPHA']} BETA-{logger.config['BETA_Y1']}")
     print("Waiting for components to initialize...")
 
+    clear_buffer(logger)
+
     init_thread = threading.Thread(target=logger.init_phase)
     init_thread.start()
 
@@ -319,7 +320,7 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, firstRun, scenario, rp1Load, rp4Load, b
         time.sleep(2)
         run_controller(rpi1Ip)
         run_controller(rpi4Ip)
-        send_restart(logger, "192.168.70.5")
+        send_restart(logger, ("192.168.70.5", 5001))
 
     init_thread.join()
     if not logger._init_phase_result:
@@ -345,13 +346,13 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, firstRun, scenario, rp1Load, rp4Load, b
         if scenario != "STANDARD" and scenario != "CPULOAD":
             apply_network_load(RP4IP, scenario)
 
-    logger._sock.settimeout(10)
+    logger._sock.settimeout(20)
     print("\n--- SYSTEM RUNNING - MONITORING MODE ---")
     logger.init_log_file(scenario, rp1Load, rp4Load, beta, alpha, event_based)
     if not logger.monitoring_phase():
         return False
 
-    for addr in logger._clients.values():
+    for addr in logger._clients.keys():
         send_restart(logger, addr)
 
     return True
@@ -361,16 +362,18 @@ def send_restart(logger, addr):
     for _ in range(10): 
         try:
             logger._sock.sendto(restart_msg, addr)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[SEND_RESTART] Nie udało się wysłać RESTART do {addr}: {e}")
         time.sleep(0.05)
 
 def clear_buffer(logger: Logger):
+    logger._sock.setblocking(False)
     while True:
         try:
             logger._sock.recvfrom(4096)
-        except socket.timeout:
+        except Exception:
             break
+    logger._sock.settimeout(0.2)
 
 def run_investigation(logger, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
     firstRun = True
@@ -385,6 +388,8 @@ def run_investigation(logger, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
                     print("[RUN_INVESTIGATION] Timeout! Performing hard reset...")
                     reset_node(rpi1Ip)
                     reset_node(rpi4Ip)
+                    clear_buffer(logger)
+                    send_restart(logger, ('192.168.70.5', 5001))
                     firstRun = True
                 firstRun = False
             else:
@@ -395,6 +400,8 @@ def run_investigation(logger, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
                         print("[RUN_INVESTIGATION] Timeout! Performing hard reset...")
                         reset_node(rpi1Ip)
                         reset_node(rpi4Ip)
+                        clear_buffer(logger)
+                        send_restart(logger, ('192.168.70.5', 5001))
                         firstRun = True
                     firstRun = False
     

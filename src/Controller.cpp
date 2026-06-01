@@ -111,17 +111,18 @@ Matrix<4, 6> Controller::calculateKmpc(int psc){
 
 void Controller::cacheKmpc(){
     int biggestHmax = std::max(config.hmax_y1, config.hmax_y2);
-    for(int i = 0; i < biggestHmax; i++){
+    for(int i = 1; i <= biggestHmax; i++){
+        if (i >= 6) break;
         k_mpc_cache[i] = calculateKmpc(i);
         k_mpc_valid[i] = true;
     }
 }
 
 Matrix<4, 6> Controller::getKmpc(int psc) {
-    if (psc >= 0 && psc < config.hmax_y1 && psc < config.hmax_y2 && k_mpc_valid[psc]) {
+    if (psc > 0 && psc < config.hmax_y1 && psc < config.hmax_y2 && k_mpc_valid[psc]) {
         return k_mpc_cache[psc];
     }
-    return k_mpc_cache[0];
+    return calculateKmpc(std::max(1, psc));
 }
 
 static float evaluateLagrange(const float* x, const float* y, size_t count, float target_x) {
@@ -220,12 +221,11 @@ void Controller::performHandshake() {
     char buffer[1024];
     
     struct timespec ts;
+    ts.tv_sec = 0;
     if (my_id == "coolant"){
-        ts.tv_sec = 2;
-        ts.tv_nsec = 0; //0.1s;
+        ts.tv_nsec = 200000000; // 0.2s
     } else {
-        ts.tv_sec = 1;
-        ts.tv_nsec = 0; //0.1s;
+        ts.tv_nsec = 100000000; // 0.1s
     }
 
     while (state != State::RUNNING) {
@@ -286,7 +286,10 @@ void Controller::mainLoop() {
         if (n <= 0) continue;
         recv_buf[n] = '\0';
         
-        if (strstr(recv_buf, "\"RESTART\"") != nullptr) break;
+        if (strstr(recv_buf, "\"RESTART\"") != nullptr){
+            state = State::INIT;
+            break;
+        };
         if (strstr(recv_buf, "\"STATUS\"") == nullptr) continue;
         
         auto getFloatVal = [&](const char* key, float default_val) {
