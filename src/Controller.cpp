@@ -1,19 +1,18 @@
 #include "Controller.h"
+#include "config/ConfigLoader.h"
 #include "messages/MessageConstructor.h"
 #include <cmath>
-#include <thread>
-#include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
+#include <algorithm>
 
-Controller::Controller(SystemConfig config, UDPSocket& sock, const std::string& controller_id)
-    : config(config), sock(sock), my_id(controller_id), state(State::INIT) {
+Controller::Controller(UDPSocket& sock, const std::string& controller_id)
+    : sock(sock), my_id(controller_id), state(State::INIT) {
     for (int i = 0; i < 6; ++i) {
         k_mpc_valid[i] = false;
     }
     history_count = 0;
-    updateModel();
-    cacheKmpc();
 }
 
 void Controller::updateModel() {
@@ -52,11 +51,9 @@ void Controller::updateModel() {
 Matrix<4, 6> Controller::calculateKmpc(int psc){
     int n_steps = 3 * psc;
     
-    // Calculate step responses locally without std::vector allocation
     float g_11[n_steps] = {0}, g_21[n_steps] = {0};
     float g_12[n_steps] = {0}, g_22[n_steps] = {0};
     
-    // Step response for U1 = 1
     float y1 = 0.0f, y1_prev = 0.0f;
     float y2 = 0.0f, y2_prev = 0.0f;
     for (int k = 0; k < n_steps; ++k) {
@@ -72,7 +69,6 @@ Matrix<4, 6> Controller::calculateKmpc(int psc){
         y2_prev = y2; y2 = y2_new;
     }
 
-    // Step response for U2 = 1
     y1 = 0.0f; y1_prev = 0.0f;
     y2 = 0.0f; y2_prev = 0.0f;
     for (int k = 0; k < n_steps; ++k) {
@@ -221,28 +217,53 @@ Matrix<6, 1> Controller::calculateFreeResponse(const std::array<float, 2>& y1_h,
 }
 
 void Controller::performHandshake() {
-    char buf[256];
+    char buffer[1024];
     
+    struct timespec ts;
+    ts.tv_sec = 1;
+    ts.tv_nsec = 0; //0.1s;
+
     while (state != State::RUNNING) {
         if (state == State::INIT) {
-            snprintf(buf, sizeof(buf), "{\"type\":\"INIT\",\"id\":\"%s\"}", my_id.c_str());
-            sock.sendTo(buf, config.logger_ip, config.logger_port);
+            snprintf(buffer, sizeof(buffer), "{\"type\":\"INIT\"}");
+            sock.sendTo(buffer, "192.168.70.1", 5000);
+            nanosleep(&ts, NULL);
             
-            // Allow sleep outside RT loop
-            struct timespec ts;
-            ts.tv_sec = 1;
-            ts.tv_nsec = 0;
+        }
+        if (state == State::WAIT_START){
+            snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\"}");
+            sock.sendTo(buffer, "192.168.70.1", 5000);
             nanosleep(&ts, NULL);
         }
         
-        std::string data = sock.recvFrom();
-        if (data.empty()) continue;
-        
-        if (state == State::INIT && data.find("\"ACK\"") != std::string::npos) {
-            state = State::WAIT_START; // Using WAIT_START as STANDBY
-        } else if (state == State::WAIT_START && data.find("\"START\"") != std::string::npos) {
-            sock.sendTo("{\"type\":\"ACK\"}", config.logger_ip, config.logger_port);
-            state = State::RUNNING;
+        int n = sock.recvFrom(buffer, sizeof(buffer) - 1);
+
+        if (n > 0){
+            buffer[n] = '\0';
+
+            if (strstr(buffer, "RESTART") != nullptr) {
+                state = State::INIT;
+                nanosleep(&ts, NULL);
+                continue;
+            }
+            if (state == State::INIT && strstr(buffer, "ACK") != nullptr) {
+                if (strstr(buffer, "config") != nullptr){
+                    config = ConfigLoader::loadFromString(buffer);
+                }
+                snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\"}");
+                sock.sendTo(buffer, "192.168.70.1", 5000);
+                state = State::WAIT_START;
+                updateModel();
+                cacheKmpc();
+            }
+            if (state == State::WAIT_START && strstr(buffer, "START") != nullptr) {
+                snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\"}");
+                sock.sendTo(buffer, "192.168.70.1", 5000);
+                state = State::RUNNING;
+            }
+        }
+        else{
+            nanosleep(&ts, NULL);
         }
     }
 }
@@ -263,7 +284,6 @@ void Controller::mainLoop() {
         if (strstr(recv_buf, "\"RESTART\"") != nullptr) break;
         if (strstr(recv_buf, "\"STATUS\"") == nullptr) continue;
         
-        // Simple JSON parsing without string allocation
         auto getFloatVal = [&](const char* key, float default_val) {
             char searchKey[32];
             snprintf(searchKey, sizeof(searchKey), "\"%s\":", key);
@@ -295,7 +315,7 @@ void Controller::mainLoop() {
         int psc1 = getIntVal("psc1", 1);
         int psc2 = getIntVal("psc2", 1);
 
-        int my_psc = (my_id == config.feed_id) ? psc1 : psc2;
+        int my_psc = (my_id == "feed") ? psc1 : psc2;
         float T_f = my_psc * (config.t_base / 1000.0f);
         current_t += T_f;
         
@@ -350,6 +370,6 @@ void Controller::mainLoop() {
             continue;
         }
 
-        sock.sendTo(cmd_buf, cmd_len, config.model_ip, config.model_port);
+        sock.sendTo(cmd_buf, cmd_len, "192.168.70.5", 5001);
     }
 }

@@ -1,6 +1,5 @@
 #include <cstdio>
 #include <cstdlib>
-#include "config/ConfigLoader.h"
 #include "Controller.h"
 #include "UDPSocket.h"
 
@@ -11,7 +10,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#define MAX_SAFE_STACK (8 * 1024) // 8KB
+#define MAX_SAFE_STACK (8 * 1024)
 
 void prefaultStack() {
     unsigned char dummy[MAX_SAFE_STACK];
@@ -29,42 +28,34 @@ bool pinThreadToCore(int core_id) {
 
 void setupRealTime(int core_id = 1) {
 #ifdef __linux__
-    // 1. Lock memory to prevent page faults
     if (mlockall(MCL_CURRENT | MCL_FUTURE) == -1) {
-        // Warning: Failed to lock memory (mlockall). Run as root for real-time performance.
+        perror("Warning: mlockall failed. Run as root!");
     }
 
-    // 2. Pre-fault our stack
     prefaultStack();
 
-    // 3. Pin thread to a specific CPU core (avoid context switching and cache misses)
-    // Core 0 is usually busy with OS tasks, so we pin to core 1, 2, or 3.
     long num_cores = sysconf(_SC_NPROCESSORS_ONLN);
     if (core_id < num_cores) {
         pinThreadToCore(core_id);
     }
 
-    // 4. Set real-time scheduler (SCHED_FIFO)
     struct sched_param param;
     memset(&param, 0, sizeof(param));
-    param.sched_priority = 90; // High priority (1-99)
+    param.sched_priority = 90;
 
     sched_setscheduler(0, SCHED_FIFO, &param);
 #else
-    (void)core_id; // Unused parameter warning fix
+    (void)core_id;
 #endif
 }
 
 int main() {
-    // Pin to core 2 by default for the coolant controller
     setupRealTime(2);
 
-    SystemConfig cfg = ConfigLoader::load("config.json");
-    UDPSocket sock(cfg.coolant_port);
-    
-    Controller controller(cfg, sock, cfg.coolant_id);
+    UDPSocket sock(5003);
     
     while (true) {
+        Controller controller(sock, "coolant");
         controller.performHandshake();
         controller.mainLoop();
     }

@@ -1,21 +1,21 @@
 #pragma once
-#include <string>
+
 
 struct SystemConfig {
-    std::string logger_ip;
+    char logger_ip[16];
     int logger_port;
 
-    std::string model_ip;
+    char model_ip[16];
     int model_port;
-    std::string model_id;
+    char model_id[16];
 
-    std::string feed_ip;
+    char feed_ip[16];
     int feed_port;
-    std::string feed_id;
+    char feed_id[16];
 
-    std::string coolant_ip;
+    char coolant_ip[16];
     int coolant_port;
-    std::string coolant_id;
+    char coolant_id[16];
 
     float sp_y1;
     float sp_y2;

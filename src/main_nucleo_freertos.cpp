@@ -22,7 +22,6 @@
 
 enum State {
     INIT,
-    WAIT_ACK,
     WAIT_START,
     RUNNING
 };
@@ -96,9 +95,9 @@ class ConfigLoader {
             cfg.t_base = getInt(json, "T_BASE", cfg.t_base);
             cfg.alpha = getInt(json, "ALPHA", cfg.alpha);
 
-            if (cfg.alpha != 0) {
-                cfg.t_base = cfg.t_base / cfg.alpha;
-            }
+//            if (cfg.alpha != 0) {
+//                cfg.t_base = cfg.t_base / cfg.alpha;
+//            }
 
             if (strstr(json, "\"LAMBDA\"") != nullptr) {
                 cfg.lambda = getFloat(json, "LAMBDA", cfg.lambda);
@@ -183,8 +182,8 @@ class ConfigLoader {
 
 class MessageConstructor {
     public:
-        static void createInitMsg(const SystemConfig& cfg, char* buf, size_t max_len) {
-            snprintf(buf, max_len, "{\"type\":\"INIT\", \"id\": \"%s\"}", cfg.model_id);
+        static void createInitMsg(char* buf, size_t max_len) {
+            snprintf(buf, max_len, "{\"type\":\"INIT\"}");
         }
 
         static void createAckMsg(char* buf, size_t max_len) {
@@ -289,7 +288,6 @@ class UDPSocket {
         bool initialized;
 
     public:
-        // 1. Pusty konstruktor - zero operacji sprzętowych!
         UDPSocket() : sockfd(-1), initialized(false) {
             memset(&my_addr, 0, sizeof(my_addr));
         }
@@ -300,7 +298,6 @@ class UDPSocket {
             }
         }
 
-        // 2. Właściwa inicjalizacja sprzętowa (wywoływana z wątku RTOS)
         bool begin(int port) {
             if (initialized) return true;
 
@@ -405,36 +402,51 @@ float u2_global = 0.0f;
 
 SemaphoreHandle_t mutex_u;
 std::atomic<bool> in_handshake(true);
-std::atomic<bool> connection_lost(false);
+std::atomic<bool> need_restart(false);
 
 void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
     enum State state = INIT;
     char buffer[1024];
 
-    while (state < State::WAIT_START) {
+    while (state != State::RUNNING) {
         if (state == State::INIT) {
-            MessageConstructor::createInitMsg(cfg_ref, buffer, sizeof(buffer));
-            sock_ref.sendTo(buffer, strlen(buffer), cfg_ref.logger_ip, 5000);
-            vTaskDelay(pdMS_TO_TICKS(500));
+            MessageConstructor::createInitMsg(buffer, sizeof(buffer));
+            sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+        if (state == State::WAIT_START){
+            MessageConstructor::createAckMsg(buffer, sizeof(buffer));
+            sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);
+            vTaskDelay(pdMS_TO_TICKS(1000));
         }
 
         int n = sock_ref.recvFrom(buffer, sizeof(buffer) - 1);
         if (n > 0) {
             buffer[n] = '\0';
+
+            if (strstr(buffer, "RESTART") != nullptr) {
+                state = State::INIT;
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
+
             if (state == State::INIT && strstr(buffer, "ACK") != nullptr) {
                 if (strstr(buffer, "config") != nullptr) {
                     ConfigLoader::loadFromString(buffer, cfg_ref);
                 }
-                state = State::WAIT_ACK;
-            }
-            else if (state == State::WAIT_ACK && strstr(buffer, "ACK") == nullptr) {
                 MessageConstructor::createAckMsg(buffer, sizeof(buffer));
-                sock_ref.sendTo(buffer, strlen(buffer), cfg_ref.logger_ip, 5000);
+                sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);
                 state = State::WAIT_START;
-                connection_lost.store(false);
+                continue;
+            }
+            if (state == State::WAIT_START && strstr(buffer, "START") == nullptr) {
+                need_restart.store(false);
+                MessageConstructor::createAckMsg(buffer, sizeof(buffer));
+                sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);
+                state = State::RUNNING;
             }
         } else {
-            vTaskDelay(pdMS_TO_TICKS(50));
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
     }
 }
@@ -452,15 +464,13 @@ void CommunicationTask(void *pvParameters) {
         if (n > 0) {
             cmd[n] = '\0';
             if (strstr(cmd, "RESTART") != nullptr) {
-                connection_lost.store(true);
+                need_restart.store(true);
+                while (!in_handshake.load()) {
+					vTaskDelay(pdMS_TO_TICKS(10));
+				}
                 continue;
             }
-            if (strstr(cmd, "START") != nullptr || strstr(cmd, "\"type\": 2") != nullptr || strstr(cmd, "\"type\":2") != nullptr) {
-                char ackBuf[64];
-                MessageConstructor::createAckMsg(ackBuf, sizeof(ackBuf));
-                sock.sendTo(ackBuf, strlen(ackBuf), "192.168.70.1", 5000);
-                continue;
-            }
+
             const char* pU1 = strstr(cmd, "\"u1\":");
             const char* pU2 = strstr(cmd, "\"u2\":");
 
@@ -475,7 +485,7 @@ void CommunicationTask(void *pvParameters) {
 void SimulationTask(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(2000));
 
-    while (!sock.begin(cfg.model_port)) {
+    while (!sock.begin(5000)) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
@@ -484,11 +494,12 @@ void SimulationTask(void *pvParameters) {
     while (true) {
         if (!sock.isInitialized()) {
             vTaskDelay(pdMS_TO_TICKS(1000));
-            sock.begin(cfg.model_port);
+            sock.begin(5000);
             continue;
         }
 
         in_handshake.store(true);
+        vTaskDelay(pdMS_TO_TICKS(150));
         performHandshake(sock, cfg);
         in_handshake.store(false);
 
@@ -502,19 +513,34 @@ void SimulationTask(void *pvParameters) {
 
         float y1 = cfg.y1_0, y2 = cfg.y2_0;
         int psc1 = 1; int psc2 = 1;
-        float sim_time = 0.0f;
-        float t_step_min = 0.0f;
 
+        float actual_t_base_ms = cfg.t_base;
         if (cfg.alpha != 0) {
-            t_step_min = (cfg.t_base / 1000.0f) / 60.0f;
+            actual_t_base_ms = (float)cfg.t_base / cfg.alpha;
         }
 
-        TickType_t xLastWakeTime = xTaskGetTickCount();
-        const TickType_t xFrequency = pdMS_TO_TICKS(cfg.t_base);
+        TickType_t xFrequency = pdMS_TO_TICKS((uint32_t)actual_t_base_ms);
+		if (xFrequency == 0) {
+			xFrequency = 1;
+		}
 
-        while (!connection_lost.load()) {
+		TickType_t xStartWakeTime = xTaskGetTickCount();
+		TickType_t xLastWakeTime = xStartWakeTime;
+		float sim_time = 0.0f;
+
+        int logger_skip_counter = 0;
+        int max_logger_skip = 30 / xFrequency;
+        if (max_logger_skip < 1) max_logger_skip = 1;
+
+        while (!need_restart.load()) {
             // Block until exactly the next cycle
             vTaskDelayUntil(&xLastWakeTime, xFrequency);
+            TickType_t elapsed_ticks = xTaskGetTickCount() - xStartWakeTime;
+            sim_time = (elapsed_ticks * portTICK_PERIOD_MS) / 60000.0f;
+
+            if (sim_time > 6.0f){
+                continue;
+            }
 
             if (sim_time > 2.0f) {
                 cfg.sp_y1 = cfg.sp_y1_step2;
@@ -534,19 +560,29 @@ void SimulationTask(void *pvParameters) {
                 y2 += generator.getY2Noise();
             }
 
-            bool trigger = true;
+            bool control_trigger = true;
             bool trigger_y1 = true;
             bool trigger_y2 = true;
 
             if (cfg.event_based) {
                 trigger_y1 = (std::abs(y1 - cfg.sp_y1) >= cfg.beta_y1) || (psc1 >= cfg.hmax_y1);
                 trigger_y2 = (std::abs(y2 - cfg.sp_y2) >= cfg.beta_y2) || (psc2 >= cfg.hmax_y2);
-                trigger = trigger_y1 || trigger_y2;
+                control_trigger = trigger_y1 || trigger_y2;
             }
 
             MessageConstructor::createStateMsg(current_u1, current_u2, y1, y2, cfg.sp_y1, cfg.sp_y2, psc1, psc2, trigger_y1, trigger_y2, cfg.beta_y1, cfg.beta_y2, cfg.hmax_y1, cfg.hmax_y2, stateJson, sizeof(stateJson));
 
-            if (trigger) {
+            logger_skip_counter++;
+            bool logger_trigger = false;
+
+            if ((logger_skip_counter >= max_logger_skip) || (cfg.event_based && control_trigger)) logger_trigger = true;
+
+            if (logger_trigger) {
+            	sock.sendTo(stateJson, strlen(stateJson), cfg.logger_ip, cfg.logger_port);
+            	logger_skip_counter = 0;
+            }
+
+            if (control_trigger) {
                 sock.sendTo(stateJson, strlen(stateJson), cfg.feed_ip, cfg.feed_port);
                 sock.sendTo(stateJson, strlen(stateJson), cfg.coolant_ip, cfg.coolant_port);
             }
@@ -561,8 +597,6 @@ void SimulationTask(void *pvParameters) {
             } else {
                 psc2++;
             }
-
-            sim_time += t_step_min;
         }
     }
 }
@@ -584,7 +618,7 @@ extern "C" void app_main() {
     mutex_u = xSemaphoreCreateMutex();
 
     if (mutex_u != NULL) {
-        xTaskCreate(CommunicationTask, "CommTask", 1024, NULL, tskIDLE_PRIORITY, NULL);
-        xTaskCreate(SimulationTask, "SimTask", 2048, NULL, tskIDLE_PRIORITY, NULL);
+        xTaskCreate(CommunicationTask, "CommTask", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);
+        xTaskCreate(SimulationTask, "SimTask", 2048, NULL, tskIDLE_PRIORITY + 2, NULL);
     }
 }

@@ -1,0 +1,1 @@
+g++ -O2 -Wall -Iinclude -I. -DDISABLE_RT_LOGGING src/coolant_main.cpp src/config/ConfigLoader.cpp src/messages/MessageConstructor.cpp src/UDPSocket.cpp src/Controller.cpp -o controller -lpthread -lrt

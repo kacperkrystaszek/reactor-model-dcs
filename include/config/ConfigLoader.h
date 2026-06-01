@@ -4,12 +4,12 @@
 
 class ConfigLoader {
     public:
-        static SystemConfig load(const std::string& filename);
-        static SystemConfig loadFromString(const std::string& json);
+        // static SystemConfig load(const std::string& filename);
+        static SystemConfig loadFromString(const char* json);
 
     private:
-        static std::string getString(const std::string& json, const std::string& key);
-        static int getInt(const std::string& json, const std::string& key);
-        static float getFloat(const std::string& json, const std::string& key);
-        static bool getBool(const std::string& json, const std::string& key);
+        static void getString(const char* json, const char* key, char* out, size_t max_len);
+        static int getInt(const char* json, const char* key);
+        static float getFloat(const char* json, const char* key);
+        static bool getBool(const char* json, const char* key);
 };

@@ -8,7 +8,7 @@
 
 class Controller {
 public:
-    Controller(SystemConfig config, UDPSocket& sock, const std::string& controller_id);
+    Controller(UDPSocket& sock, const std::string& controller_id);
     
     void performHandshake();
     void mainLoop();

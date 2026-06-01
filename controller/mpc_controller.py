@@ -9,7 +9,7 @@ from scipy.interpolate import lagrange
 
 import numpy as np
 from utils.MessageType import MessageType
-from utils.States import States
+from logger.States import States
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
