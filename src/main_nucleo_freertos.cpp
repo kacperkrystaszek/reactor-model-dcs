@@ -186,8 +186,8 @@ class MessageConstructor {
             snprintf(buf, max_len, "{\"type\":\"INIT\"}");
         }
 
-        static void createAckMsg(char* buf, size_t max_len) {
-            snprintf(buf, max_len, "{\"type\":\"ACK\"}");
+        static void createAckMsg(char* buf, size_t max_len, const char* ackFor) {
+            snprintf(buf, max_len, "{\"type\":\"ACK\", \"ack_for\": %s}", ackFor);
         }
 
         static void createStateMsg(float u1, float u2, float y1, float y2, float sp_y1, float sp_y2, int psc1, int psc2, bool is_event_y1, bool is_event_y2, float beta_y1, float beta_y2, int hmax_y1, int hmax_y2, char* buf, size_t max_len) {
@@ -232,13 +232,19 @@ class Reactor {
                 u1[i] = initial_u1;
                 u2[i] = initial_u2;
             }
-            float alpha = cfg.alpha == 0 ? 1.0f : cfg.alpha;
-            float current_T_BASE = cfg.t_base / alpha;
+            float alpha = cfg.alpha == 0 ? 1.0f : static_cast<float>(cfg.alpha);
+            float current_T_BASE = static_cast<float>(cfg.t_base) / alpha;
             float T_min = (current_T_BASE / 1000.0f) / 60.0f;
-            float p1 = std::exp(-T_min / (0.7f / alpha));
-            float p2 = std::exp(-T_min / (0.3f / alpha));
-            float p3 = std::exp(-T_min / (0.5f / alpha));
-            float p4 = std::exp(-T_min / (0.4f / alpha));
+
+            float p1 = std::exp(-T_min / (0.7f));
+            float p2 = std::exp(-T_min / (0.3f));
+            float p3 = std::exp(-T_min / (0.5f));
+            float p4 = std::exp(-T_min / (0.4f));
+
+//            float p1 = std::exp(-T_min / 0.7f);
+//            float p2 = std::exp(-T_min / 0.3f);
+//            float p3 = std::exp(-T_min / 0.5f);
+//            float p4 = std::exp(-T_min / 0.4f);
 
             Amatrix[0][0] = p1 + p2; Amatrix[0][1] = -(p1 * p2);
             Amatrix[1][0] = 0.0f;    Amatrix[1][1] = 0.0f;
@@ -330,6 +336,12 @@ class UDPSocket {
 
         bool isInitialized() const { return initialized; }
 
+        void setNonBlocking(bool nonBlocking) {
+        	if (!initialized || sockfd < 0) return;
+        	int non_blocking = nonBlocking ? 1 : 0;
+        	lwip_ioctl(sockfd, FIONBIO, &non_blocking);
+        }
+
         bool sendTo(const char* msg, size_t len, const char* ip, int port) {
             if (!initialized) return false;
 
@@ -372,7 +384,7 @@ public:
 
 class NoiseGen {
 private:
-    std::mt19937 prng; // Szybki generator pseudolosowy
+    std::mt19937 prng;
     std::normal_distribution<float> distY1;
     std::normal_distribution<float> distY2;
 
@@ -380,13 +392,11 @@ public:
     NoiseGen(RNG_HandleTypeDef* hrng_handle, float dev1, float dev2)
         : distY1(0.0f, dev1),
           distY2(0.0f, dev2) {
-        
-        uint32_t seed_val = 12345; // Awaryjne ziarno
+
+        uint32_t seed_val = 12345;
         if (hrng_handle != nullptr) {
-            // Pobieramy prawdziwą losowość sprzętową TYLKO RAZ
             HAL_RNG_GenerateRandomNumber(hrng_handle, &seed_val);
         }
-        // Inicjalizujemy szybki algorytm
         prng.seed(seed_val);
     }
 
@@ -423,7 +433,7 @@ void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
             vTaskDelay(pdMS_TO_TICKS(100));
         }
         if (state == State::WAIT_START){
-            MessageConstructor::createAckMsg(buffer, sizeof(buffer));
+        	snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\", \"ack_for\":\"CONFIG\"}");
             sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);
             vTaskDelay(pdMS_TO_TICKS(100));
         }
@@ -433,24 +443,22 @@ void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
             buffer[n] = '\0';
 
             if (strstr(buffer, "RESTART") != nullptr) {
-                state = State::INIT;
-                vTaskDelay(pdMS_TO_TICKS(100));
                 continue;
             }
 
-            if (state == State::INIT && strstr(buffer, "ACK") != nullptr) {
+            if (state == State::INIT && strstr(buffer, "ACK") != nullptr && strstr(buffer, "\"INIT\"") != nullptr) {
                 if (strstr(buffer, "config") != nullptr) {
                     ConfigLoader::loadFromString(buffer, cfg_ref);
                 }
-                MessageConstructor::createAckMsg(buffer, sizeof(buffer));
+                snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\", \"ack_for\":\"CONFIG\"}");
                 sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);
                 state = State::WAIT_START;
                 continue;
             }
             if (state == State::WAIT_START && strstr(buffer, "START") != nullptr) {
-                need_restart.store(false);
-                MessageConstructor::createAckMsg(buffer, sizeof(buffer));
+            	snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\", \"ack_for\":\"START\"}");
                 sock_ref.sendTo(buffer, strlen(buffer), "192.168.70.1", 5000);
+                need_restart.store(false);
                 state = State::RUNNING;
             }
         } else {
@@ -506,10 +514,12 @@ void SimulationTask(void *pvParameters) {
             continue;
         }
 
+        sock.setNonBlocking(true);
         in_handshake.store(true);
         vTaskDelay(pdMS_TO_TICKS(150));
         performHandshake(sock, cfg);
         in_handshake.store(false);
+        sock.setNonBlocking(false);
 
         Reactor reactor(cfg, cfg.y1_0, cfg.y2_0, 0.0f, 0.0f);
         NoiseGen generator(&hrng, 0.002f, 0.002f);
@@ -541,7 +551,6 @@ void SimulationTask(void *pvParameters) {
         if (max_logger_skip < 1) max_logger_skip = 1;
 
         while (!need_restart.load()) {
-            // Block until exactly the next cycle
             vTaskDelayUntil(&xLastWakeTime, xFrequency);
             TickType_t elapsed_ticks = xTaskGetTickCount() - xStartWakeTime;
             sim_time = (elapsed_ticks * portTICK_PERIOD_MS) / 60000.0f;
