@@ -382,32 +382,52 @@ def clear_buffer(logger: Logger):
             break
     logger._sock.settimeout(0.2)
 
-def run_investigation(logger, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
+def run_investigation(logger, start_timestamp, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
+    def write_fail(scenario, alpha, beta, eb):
+        file = None
+        filename = f"{start_timestamp}_fails.txt"
+        if os.path.exists(f"{start_timestamp}_fails.txt"):
+            file = open(filename, "r+")
+        else:
+            file = open(filename, "w")
+        file.write(f"FAIL: {scenario} ALPHA-{alpha} BETA-{beta} EB-{eb}\n")
+        file.close()
+
     for ebValue in [False, True]:
     # for ebValue in [False]:
     # for ebValue in [True]:
         # for alphaValue in [1, 250, 500, 900]:
-        # for alphaValue in [500, 900]:
-        for alphaValue in [250, 500, 900]:
+        for alphaValue in [500, 900]:
+        # for alphaValue in [250, 500, 900]:
             logger.config['EVENT_BASED'] = ebValue
             logger.config['ALPHA'] = alphaValue
             if not ebValue:
-                while not main(logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED']):
+                attempts = 1
+                while not main(logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED']) and attempts < 6:
                     print("[RUN_INVESTIGATION] Timeout! Performing hard reset...")
                     reset_node(rpi1Ip)
                     reset_node(rpi4Ip)
                     clear_buffer(logger)
                     send_restart(logger, ('192.168.70.5', 5001))
+                    attempts += 1
+                if attempts > 5:
+                    write_fail(scenario, alphaValue, None, ebValue)
             else:
                 for betaValue in [0.005, 0.01, 0.015]:
                     logger.config['BETA_Y1'] = betaValue
                     logger.config['BETA_Y2'] = betaValue
-                    while not main(logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED']):
+                    attempts = 1
+                    while not main(logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED']) and attempts < 6:
                         print("[RUN_INVESTIGATION] Timeout! Performing hard reset...")
                         reset_node(rpi1Ip)
                         reset_node(rpi4Ip)
                         clear_buffer(logger)
                         send_restart(logger, ('192.168.70.5', 5001))
+                        attempts += 1
+                    if attempts > 5:
+                        write_fail(scenario, alphaValue, betaValue, ebValue)
+
+
     
     # main(logger, rpi1Ip, rpi4Ip, firstRun, scenario, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED'])
 
@@ -417,7 +437,8 @@ def run_investigation(logger, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
 if __name__ == "__main__":
     loaded_config = load_config()
     logger = Logger(loaded_config)
-
+    start_timestamp = datetime.datetime.now()
+    start_timestamp_str = start_timestamp.strftime("%d-%m-%Y_%H-%M-%S")
 
     RP1IP = "192.168.70.2"
     RP4IP = "192.168.70.3"
@@ -426,30 +447,30 @@ if __name__ == "__main__":
     reset_node(RP4IP)
 
     scenario = "STANDARD"
-    run_investigation(logger, scenario, None, None, RP1IP, RP4IP)
+    run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
 
     scenario = "CPULOAD"
     for rpi1Load in [True]:
         for rpi4Load in [False, True]:
-            run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
     scenario = "CONSTANTDELAY"
     for rpi1Load in [True]:
         for rpi4Load in [False, True]:
-            run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
     scenario = "VARIABLEDELAY"
     for rpi1Load in [True]:
         for rpi4Load in [False, True]:
-            run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
     scenario = "PACKETLOSS"
     for rpi1Load in [True]:
         for rpi4Load in [False, True]:
-            run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
     scenario = "COMBINEDNETWORK"
-    run_investigation(logger, scenario, True, True, RP1IP, RP4IP)
+    run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
 
     scenario = "COMBINEDALL"
-    run_investigation(logger, scenario, True, True, RP1IP, RP4IP)
+    run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
