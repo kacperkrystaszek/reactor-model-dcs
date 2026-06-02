@@ -54,7 +54,7 @@ class Logger:
                     print(f"[INIT_PHASE] Connection from {addr}. Sending ACK with config.")
                 self._clients[addr] = States.INIT
                 
-                ack_msg = json.dumps({"type": MessageType.ACK.value, "config": self.config})
+                ack_msg = json.dumps({"type": MessageType.ACK.value, "ack_for": MessageType.INIT.value, "config": self.config})
                 self._sock.sendto(ack_msg.encode(), addr)
 
             except socket.timeout:
@@ -77,11 +77,11 @@ class Logger:
                 msg = json.loads(data.decode())
 
                 if msg.get("type") == MessageType.INIT.value:
-                    ack_msg = json.dumps({"type": MessageType.ACK.value, "config": self.config})
+                    ack_msg = json.dumps({"type": MessageType.ACK.value, "ack_for": MessageType.INIT.value, "config": self.config})
                     self._sock.sendto(ack_msg.encode(), addr)
                     continue
 
-                if msg.get("type") != MessageType.ACK.value:
+                if msg.get("type") != MessageType.ACK.value and msg.get("ack_for") != "CONFIG":
                     attempts += 1
                     continue
 
@@ -112,7 +112,8 @@ class Logger:
                     if addr != target_addr:
                         continue
                     msg = json.loads(data)
-                    if msg.get("type") == MessageType.ACK.value:
+
+                    if msg.get("type") == MessageType.ACK.value and msg.get("ack_for") == "START":
                         self._clients[target_addr] = States.RUNNING
                         print(f"[START_PHASE] {target_addr} is in RUNNING state.")
                         break
@@ -136,7 +137,6 @@ class Logger:
             try:
                 data, addr = self._sock.recvfrom(4096)
             except socket.timeout:
-                filepath = self._log_file.name
                 self._log_file.close()
                 return False
             if zero_time is None:
@@ -246,6 +246,8 @@ def run_controller(ip):
     print(f"[{ip}] FINISHED RUN CONTROLLER")
 
 def apply_cpu_load(ip):
+    print(f"[{ip}] RUN CPU LOAD")
+
     ssh_run(ip, "sudo killall -9 stress-ng")
     cores = "1" if ip.endswith("2") else "4"
 
@@ -256,6 +258,7 @@ def apply_cpu_load(ip):
         stderr=subprocess.DEVNULL
     )
     active_processes_controllers[f"{ip}_stress"] = proc
+    print(f"[{ip}] RUN CPU LOAD")
 
 def apply_network_load(ip, scenario):
     print(f"[{ip}] RUN NETWORK LOAD")
@@ -307,20 +310,21 @@ def reset_node(ip):
 
     print(f"[{ip}] END RESET")
 
-def main(logger: Logger, rpi1Ip, rpi4Ip, firstRun, scenario, rp1Load, rp4Load, beta, alpha, event_based):
+def main(logger: Logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, beta, alpha, event_based):
     print(f"RUNNING SIM FOR: SCENARIO-{scenario} RP1LOAD-{rp1Load} RP4LOAD-{rp4Load} EB-{logger.config['EVENT_BASED']} ALPHA-{logger.config['ALPHA']} BETA-{logger.config['BETA_Y1']}")
     print("Waiting for components to initialize...")
 
     clear_buffer(logger)
+    send_restart(logger, ('192.168.70.5', 5001))
 
     init_thread = threading.Thread(target=logger.init_phase)
     init_thread.start()
 
-    if firstRun:
-        time.sleep(2)
-        run_controller(rpi1Ip)
-        run_controller(rpi4Ip)
-        send_restart(logger, ("192.168.70.5", 5001))
+    # if firstRun:
+    time.sleep(2)
+    run_controller(rpi1Ip)
+    run_controller(rpi4Ip)
+    send_restart(logger, ("192.168.70.5", 5001))
 
     init_thread.join()
     if not logger._init_phase_result:
@@ -352,19 +356,22 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, firstRun, scenario, rp1Load, rp4Load, b
     if not logger.monitoring_phase():
         return False
 
-    for addr in logger._clients.keys():
-        send_restart(logger, addr)
+    # for addr in logger._clients.keys():
+    #     send_restart(logger, addr)
+    reset_node(RP1IP)
+    reset_node(RP4IP)
+    # send_restart(logger, ('192.168.70.5', 5001))
 
     return True
 
 def send_restart(logger, addr):
     restart_msg = json.dumps({"type": MessageType.RESTART.value}).encode()
-    for _ in range(10): 
+    for _ in range(3): 
         try:
             logger._sock.sendto(restart_msg, addr)
         except Exception as e:
             print(f"[SEND_RESTART] Nie udało się wysłać RESTART do {addr}: {e}")
-        time.sleep(0.05)
+
 
 def clear_buffer(logger: Logger):
     logger._sock.setblocking(False)
@@ -376,34 +383,31 @@ def clear_buffer(logger: Logger):
     logger._sock.settimeout(0.2)
 
 def run_investigation(logger, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
-    firstRun = True
     for ebValue in [False, True]:
+    # for ebValue in [False]:
     # for ebValue in [True]:
-        for alphaValue in [1, 250, 500, 900]:
+        # for alphaValue in [1, 250, 500, 900]:
         # for alphaValue in [500, 900]:
+        for alphaValue in [250, 500, 900]:
             logger.config['EVENT_BASED'] = ebValue
             logger.config['ALPHA'] = alphaValue
             if not ebValue:
-                while not main(logger, rpi1Ip, rpi4Ip, firstRun, scenario, rp1Load, rp4Load, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED']):
+                while not main(logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED']):
                     print("[RUN_INVESTIGATION] Timeout! Performing hard reset...")
                     reset_node(rpi1Ip)
                     reset_node(rpi4Ip)
                     clear_buffer(logger)
                     send_restart(logger, ('192.168.70.5', 5001))
-                    firstRun = True
-                firstRun = False
             else:
                 for betaValue in [0.005, 0.01, 0.015]:
                     logger.config['BETA_Y1'] = betaValue
                     logger.config['BETA_Y2'] = betaValue
-                    while not main(logger, rpi1Ip, rpi4Ip, firstRun, scenario, rp1Load, rp4Load, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED']):
+                    while not main(logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED']):
                         print("[RUN_INVESTIGATION] Timeout! Performing hard reset...")
                         reset_node(rpi1Ip)
                         reset_node(rpi4Ip)
                         clear_buffer(logger)
                         send_restart(logger, ('192.168.70.5', 5001))
-                        firstRun = True
-                    firstRun = False
     
     # main(logger, rpi1Ip, rpi4Ip, firstRun, scenario, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED'])
 
@@ -413,6 +417,7 @@ def run_investigation(logger, scenario, rp1Load, rp4Load, rpi1Ip, rpi4Ip):
 if __name__ == "__main__":
     loaded_config = load_config()
     logger = Logger(loaded_config)
+
 
     RP1IP = "192.168.70.2"
     RP4IP = "192.168.70.3"
@@ -431,38 +436,20 @@ if __name__ == "__main__":
     scenario = "CONSTANTDELAY"
     for rpi1Load in [True]:
         for rpi4Load in [False, True]:
-            if rpi1Load:
-                apply_network_load(RP1IP, scenario)
-            if rpi4Load:
-                apply_network_load(RP4IP, scenario)
             run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
     scenario = "VARIABLEDELAY"
     for rpi1Load in [True]:
         for rpi4Load in [False, True]:
-            if rpi1Load:
-                apply_network_load(RP1IP, scenario)
-            if rpi4Load:
-                apply_network_load(RP4IP, scenario)
             run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
     scenario = "PACKETLOSS"
     for rpi1Load in [True]:
-        for rpi4Load in [True]:
-            if rpi1Load:
-                apply_network_load(RP1IP, scenario)
-            if rpi4Load:
-                apply_network_load(RP4IP, scenario)
+        for rpi4Load in [False, True]:
             run_investigation(logger, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
     scenario = "COMBINEDNETWORK"
-    apply_network_load(RP1IP, scenario)
-    apply_network_load(RP4IP, scenario)
     run_investigation(logger, scenario, True, True, RP1IP, RP4IP)
 
     scenario = "COMBINEDALL"
-    apply_cpu_load(RP1IP)
-    apply_cpu_load(RP4IP)
-    apply_network_load(RP1IP, scenario)
-    apply_network_load(RP4IP, scenario)
     run_investigation(logger, scenario, True, True, RP1IP, RP4IP)

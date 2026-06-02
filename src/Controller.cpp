@@ -8,16 +8,22 @@
 #include <algorithm>
 
 Controller::Controller(UDPSocket& sock, const std::string& controller_id)
-    : sock(sock), my_id(controller_id), state(State::INIT) {
+    : sock(sock), my_id(controller_id), state(State::INIT), history_t(nullptr), history_y1(nullptr), history_y2(nullptr) {
     for (int i = 0; i < 6; ++i) {
         k_mpc_valid[i] = false;
     }
     history_count = 0;
 }
 
+Controller::~Controller(){
+    delete[] history_t;
+    delete[] history_y1;
+    delete[] history_y2;
+}
+
 void Controller::updateModel() {
     float alpha = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
-    float current_T_BASE = static_cast<float>(config.t_base);
+    float current_T_BASE = static_cast<float>(config.t_base) / alpha;
     float T_min = (current_T_BASE / 1000.0f) / 60.0f;
     
     float p1 = std::exp(-T_min / (0.7f / alpha));
@@ -49,7 +55,9 @@ void Controller::updateModel() {
 }
 
 Matrix<4, 6> Controller::calculateKmpc(int psc){
-    int n_steps = 3 * psc;
+    float alpha_f = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
+    int effective_psc = static_cast<int>(psc * alpha_f);
+    int n_steps = 3 * effective_psc;
     
     float g_11[n_steps] = {0}, g_21[n_steps] = {0};
     float g_12[n_steps] = {0}, g_22[n_steps] = {0};
@@ -84,9 +92,9 @@ Matrix<4, 6> Controller::calculateKmpc(int psc){
         y2_prev = y2; y2 = y2_new;
     }
     
-    int s1 = psc - 1;
-    int s2 = 2 * psc - 1;
-    int s3 = 3 * psc - 1;
+    int s1 = effective_psc - 1;
+    int s2 = 2 * effective_psc - 1;
+    int s3 = 3 * effective_psc - 1;
     
     Matrix<6, 4> G;
     G.data[0] = {g_11[s1], g_12[s1], 0.0f,     0.0f};
@@ -140,27 +148,29 @@ static float evaluateLagrange(const float* x, const float* y, size_t count, floa
 }
 
 void Controller::resampleStatesLagrange(float T_f, float& y1, float& y1_prev, float& y2, float& y2_prev) {
-    float T_BASE = config.t_base / 1000.0f;
-    
+    float alpha = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
+    float T_s = (config.t_base / 1000.0f) / alpha;
+
     if (history_count == 1) {
         y1 = history_y1[0]; y1_prev = history_y1[0];
         y2 = history_y2[0]; y2_prev = history_y2[0];
         return;
     }
-    if (history_count == 2 || std::abs(T_f - T_BASE) < 0.01f) {
+    if (history_count == 2 || std::abs(T_f - T_s) < 0.001f) {
         y1 = history_y1[history_count - 1]; y1_prev = history_y1[history_count - 2];
         y2 = history_y2[history_count - 1]; y2_prev = history_y2[history_count - 2];
         return;
     }
 
     float t_curr_real = history_t[history_count - 1];
-    float normalized_t[HISTORY_MAX];
+    float normalized_t[history_count];
+
     for (size_t i = 0; i < history_count; ++i) {
         normalized_t[i] = history_t[i] - t_curr_real;
     }
 
-    float y1_resampled = evaluateLagrange(normalized_t, history_y1, history_count, -T_BASE);
-    float y2_resampled = evaluateLagrange(normalized_t, history_y2, history_count, -T_BASE);
+    float y1_resampled = evaluateLagrange(normalized_t, history_y1, history_count, -T_s);
+    float y2_resampled = evaluateLagrange(normalized_t, history_y2, history_count, -T_s);
 
     float min_y1 = history_y1[0];
     float max_y1 = history_y1[0];
@@ -182,6 +192,9 @@ void Controller::resampleStatesLagrange(float T_f, float& y1, float& y1_prev, fl
 
 Matrix<6, 1> Controller::calculateFreeResponse(const std::array<float, 2>& y1_h, const std::array<float, 2>& y2_h, 
                                                const std::array<float, 2>& u1_h, const std::array<float, 2>& u2_h, int psc) {
+    float alpha_f = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
+    int effective_psc = static_cast<int>(psc * alpha_f);
+    
     std::array<float, 2> ly1 = y1_h;
     std::array<float, 2> ly2 = y2_h;
     std::array<float, 2> lu1 = u1_h;
@@ -236,7 +249,7 @@ void Controller::performHandshake() {
             
         }
         if (state == State::WAIT_START){
-            snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\"}");
+            snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\", \"ack_for\":\"CONFIG\"}");
             sock.sendTo(buffer, "192.168.70.1", 5000);
             nanosleep(&ts, NULL);
         }
@@ -251,18 +264,34 @@ void Controller::performHandshake() {
                 nanosleep(&ts, NULL);
                 continue;
             }
-            if (state == State::INIT && strstr(buffer, "ACK") != nullptr) {
+            if (state == State::INIT && strstr(buffer, "\"ACK\"") != nullptr && strstr(buffer, "\"INIT\"") != nullptr) {
                 if (strstr(buffer, "config") != nullptr){
                     config = ConfigLoader::loadFromString(buffer);
                 }
-                snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\"}");
+                delete[] history_t;
+                delete[] history_y1;
+                delete[] history_y2;
+
+                size_t needed_size = static_cast<size_t>(3 * config.alpha) + 5;
+                if (needed_size < 5) needed_size = 5;
+                history_max = needed_size;
+
+                history_t = new float[history_max]();
+                history_y1 = new float[history_max]();
+                history_y2 = new float[history_max]();
+
+                history_count = 0;
+                current_t = 0.0f;
+
+                snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\", \"ack_for\":\"CONFIG\"}");
                 sock.sendTo(buffer, "192.168.70.1", 5000);
                 state = State::WAIT_START;
                 updateModel();
                 cacheKmpc();
+                continue;
             }
             if (state == State::WAIT_START && strstr(buffer, "START") != nullptr) {
-                snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\"}");
+                snprintf(buffer, sizeof(buffer), "{\"type\":\"ACK\", \"ack_for\":\"START\"}");
                 sock.sendTo(buffer, "192.168.70.1", 5000);
                 state = State::RUNNING;
             }
@@ -324,23 +353,25 @@ void Controller::mainLoop() {
         int psc2 = getIntVal("psc2", 1);
 
         int my_psc = (my_id == "feed") ? psc1 : psc2;
-        float T_f = my_psc * (config.t_base / 1000.0f);
+        float alpha = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
+        float T_s = (config.t_base / 1000.0f) / alpha;
+        float T_f = my_psc * T_s;
         current_t += T_f;
         
-        if (history_count < HISTORY_MAX) {
+        if (history_count < history_max) {
             history_t[history_count] = current_t;
             history_y1[history_count] = y1;
             history_y2[history_count] = y2;
             history_count++;
         } else {
-            for (size_t i = 0; i < HISTORY_MAX - 1; ++i) {
+            for (size_t i = 0; i < history_max - 1; ++i) {
                 history_t[i] = history_t[i+1];
                 history_y1[i] = history_y1[i+1];
                 history_y2[i] = history_y2[i+1];
             }
-            history_t[HISTORY_MAX - 1] = current_t;
-            history_y1[HISTORY_MAX - 1] = y1;
-            history_y2[HISTORY_MAX - 1] = y2;
+            history_t[history_max - 1] = current_t;
+            history_y1[history_max - 1] = y1;
+            history_y2[history_max - 1] = y2;
         }
 
         float y1_curr, y1_prev, y2_curr, y2_prev;

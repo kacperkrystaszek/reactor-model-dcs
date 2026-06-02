@@ -9,6 +9,7 @@
 class Controller {
 public:
     Controller(UDPSocket& sock, const std::string& controller_id);
+    ~Controller();
     
     void performHandshake();
     void mainLoop();
@@ -30,10 +31,10 @@ private:
     Matrix<4, 6> k_mpc_cache[6];
     bool k_mpc_valid[6];
 
-    static constexpr size_t HISTORY_MAX = 3;
-    float history_t[HISTORY_MAX];
-    float history_y1[HISTORY_MAX];
-    float history_y2[HISTORY_MAX];
+    size_t history_max;
+    float* history_t;
+    float* history_y1;
+    float* history_y2;
     size_t history_count = 0;
     float current_t = 0.0f;
 
