@@ -49,7 +49,6 @@ SystemConfig ConfigLoader::loadFromString(const char* json) {
     cfg.hmax_y2 = ConfigLoader::getInt(json, "HMAX_Y2");
     cfg.t_base = ConfigLoader::getInt(json, "T_BASE");
     cfg.alpha = ConfigLoader::getInt(json, "ALPHA");
-    cfg.t_base = cfg.t_base / cfg.alpha;
     
     if (strstr(json, "\"LAMBDA\"") != nullptr) {
         cfg.lambda = ConfigLoader::getFloat(json, "LAMBDA");

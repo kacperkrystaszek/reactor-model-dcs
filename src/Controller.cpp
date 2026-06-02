@@ -17,7 +17,7 @@ Controller::Controller(UDPSocket& sock, const std::string& controller_id)
 
 void Controller::updateModel() {
     float alpha = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
-    float current_T_BASE = static_cast<float>(config.t_base);
+    float current_T_BASE = static_cast<float>(config.t_base) / alpha;
     float T_min = (current_T_BASE / 1000.0f) / 60.0f;
     
     float p1 = std::exp(-T_min / (0.7f));
@@ -111,17 +111,17 @@ Matrix<4, 6> Controller::calculateKmpc(int psc){
 
 void Controller::cacheKmpc(){
     int biggestHmax = std::max(config.hmax_y1, config.hmax_y2);
-    for(int i = 0; i < biggestHmax; i++){
+    for(int i = 1; i < biggestHmax && i < 6; i++){
         k_mpc_cache[i] = calculateKmpc(i);
         k_mpc_valid[i] = true;
     }
 }
 
 Matrix<4, 6> Controller::getKmpc(int psc) {
-    if (psc >= 0 && psc < config.hmax_y1 && psc < config.hmax_y2 && k_mpc_valid[psc]) {
+    if (psc >= 1 && psc < config.hmax_y1 && psc < config.hmax_y2 && psc < 6 && k_mpc_valid[psc]) {
         return k_mpc_cache[psc];
     }
-    return k_mpc_cache[0];
+    return k_mpc_cache[1];
 }
 
 static float evaluateLagrange(const float* x, const float* y, size_t count, float target_x) {
