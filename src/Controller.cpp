@@ -404,10 +404,14 @@ void Controller::mainLoop() {
         char cmd_buf[64];
         int cmd_len = 0;
         if (my_id == config.feed_id) {
-            float new_u = std::clamp(u1_curr + delta_u.data[0][0], -0.5f, 0.5f);
+            float candidate = u1_curr + delta_u.data[0][0];
+            if (!std::isfinite(candidate)) candidate = u1_curr;
+            float new_u = std::clamp(candidate, -0.5f, 0.5f);
             cmd_len = snprintf(cmd_buf, sizeof(cmd_buf), "{\"u1\":%f}", new_u);
         } else if (my_id == config.coolant_id) {
-            float new_u = std::clamp(u2_curr + delta_u.data[1][0], -0.5f, 0.5f);
+            float candidate = u2_curr + delta_u.data[1][0];
+            if (!std::isfinite(candidate)) candidate = u2_curr;
+            float new_u = std::clamp(candidate, -0.5f, 0.5f);
             cmd_len = snprintf(cmd_buf, sizeof(cmd_buf), "{\"u2\":%f}", new_u);
         } else {
             continue;

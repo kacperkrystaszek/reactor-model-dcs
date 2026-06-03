@@ -129,6 +129,9 @@ class Logger:
         print(f"TIMESTAMP  | Y1SP     Y2SP     | Y1       Y2       | U1       U2       | EVENT")
         zero_time = None
         lastMoment = 0
+        last_valid = time.perf_counter()
+        malformed_count = 0
+        last_malformed_log = 0.0
         while True:
             try:
                 data, addr = self._sock.recvfrom(4096)
@@ -192,8 +195,18 @@ class Logger:
                     hmax_y2
                 ])
                 self._log_file.flush()
+                last_valid = time.perf_counter()
             except (ValueError, KeyError, TypeError) as e:
-                print(f"[MONITORING_PHASE] Skipping malformed packet: {e}")
+                malformed_count += 1
+                now = time.perf_counter()
+                if now - last_malformed_log > 1.0:
+                    print(f"[MONITORING_PHASE] Skipping malformed packets (x{malformed_count}), last ({e}): {data[:120]!r}")
+                    last_malformed_log = now
+                    malformed_count = 0
+                if now - last_valid > 30:
+                    print("[MONITORING_PHASE] Only malformed data within safety timeout. Treating run as failed.")
+                    self._log_file.close()
+                    return False
                 continue
 
     def init_log_file(self, scenario, rp1Load, rp4Load, beta, alpha, event_based):
