@@ -103,7 +103,7 @@ Matrix<4, 6> Controller::calculateKmpc(int psc){
     G.data[3] = {g_21[s2], g_22[s2], g_21[s1], g_22[s1]};
     G.data[4] = {g_11[s3], g_12[s3], g_11[s2], g_12[s2]};
     G.data[5] = {g_21[s3], g_22[s3], g_21[s2], g_22[s2]};
-
+    
     delete[] g_11; delete[] g_21; delete[] g_12; delete[] g_22;
     
     Matrix<4, 6> GT = G.transpose();
@@ -164,22 +164,26 @@ void Controller::resampleStatesLagrange(float T_f, float& y1, float& y1_prev, fl
         return;
     }
 
-    float t_curr_real = history_t[history_count - 1];
-    float* normalized_t = new float[history_count];
+    const size_t maxWindow = 4;
+    size_t window = history_count < maxWindow ? history_count : maxWindow;
+    size_t startIdx = history_count - window;
 
-    for (size_t i = 0; i < history_count; ++i) {
-        normalized_t[i] = history_t[i] - t_curr_real;
+    float t_curr_real = history_t[history_count - 1];
+    float* normalized_t = new float[window];
+
+    for (size_t i = 0; i < window; ++i) {
+        normalized_t[i] = history_t[startIdx + i] - t_curr_real;
     }
 
-    float y1_resampled = evaluateLagrange(normalized_t, history_y1, history_count, -T_s);
-    float y2_resampled = evaluateLagrange(normalized_t, history_y2, history_count, -T_s);
+    float y1_resampled = evaluateLagrange(normalized_t, history_y1 + startIdx, window, -T_s);
+    float y2_resampled = evaluateLagrange(normalized_t, history_y2 + startIdx, window, -T_s);
+    
+    float min_y1 = history_y1[startIdx];
+    float max_y1 = history_y1[startIdx];
+    float min_y2 = history_y2[startIdx];
+    float max_y2 = history_y2[startIdx];
 
-    float min_y1 = history_y1[0];
-    float max_y1 = history_y1[0];
-    float min_y2 = history_y2[0];
-    float max_y2 = history_y2[0];
-
-    for (size_t i = 1; i < history_count; ++i) {
+    for (size_t i = startIdx + 1; i < history_count; ++i) {
         if (history_y1[i] < min_y1) min_y1 = history_y1[i];
         if (history_y1[i] > max_y1) max_y1 = history_y1[i];
         if (history_y2[i] < min_y2) min_y2 = history_y2[i];
@@ -187,10 +191,10 @@ void Controller::resampleStatesLagrange(float T_f, float& y1, float& y1_prev, fl
     }
 
     y1 = history_y1[history_count - 1];
-    y1_prev = std::clamp(y1_resampled, min_y1, max_y1);
     y2 = history_y2[history_count - 1];
-    y2_prev = std::clamp(y2_resampled, min_y2, max_y2);
 
+    y1_prev = std::isfinite(y1_resampled) ? std::clamp(y1_resampled, min_y1, max_y1) : y1;
+    y2_prev = std::isfinite(y2_resampled) ? std::clamp(y2_resampled, min_y2, max_y2) : y2;
     delete[] normalized_t;
 }
 
@@ -272,17 +276,6 @@ void Controller::performHandshake() {
                 if (strstr(buffer, "config") != nullptr){
                     config = ConfigLoader::loadFromString(buffer);
                 }
-                delete[] history_t;
-                delete[] history_y1;
-                delete[] history_y2;
-
-                size_t needed_size = static_cast<size_t>(3 * config.alpha) + 5;
-                if (needed_size < 5) needed_size = 5;
-                history_max = needed_size;
-
-                history_t = new float[history_max]();
-                history_y1 = new float[history_max]();
-                history_y2 = new float[history_max]();
 
                 history_count = 0;
                 current_t = 0.0f;
@@ -362,20 +355,20 @@ void Controller::mainLoop() {
         float T_f = my_psc * T_s;
         current_t += T_f;
         
-        if (history_count < history_max) {
+        if (history_count < HISTORY_MAX) {
             history_t[history_count] = current_t;
             history_y1[history_count] = y1;
             history_y2[history_count] = y2;
             history_count++;
         } else {
-            for (size_t i = 0; i < history_max - 1; ++i) {
+            for (size_t i = 0; i < HISTORY_MAX - 1; ++i) {
                 history_t[i] = history_t[i+1];
                 history_y1[i] = history_y1[i+1];
                 history_y2[i] = history_y2[i+1];
             }
-            history_t[history_max - 1] = current_t;
-            history_y1[history_max - 1] = y1;
-            history_y2[history_max - 1] = y2;
+            history_t[HISTORY_MAX - 1] = current_t;
+            history_y1[HISTORY_MAX - 1] = y1;
+            history_y2[HISTORY_MAX - 1] = y2;
         }
 
         float y1_curr, y1_prev, y2_curr, y2_prev;
@@ -404,10 +397,12 @@ void Controller::mainLoop() {
         char cmd_buf[64];
         int cmd_len = 0;
         if (my_id == config.feed_id) {
-            float new_u = std::clamp(u1_curr + delta_u.data[0][0], -0.5f, 0.5f);
+            float delta = std::isfinite(delta_u.data[0][0]) ? delta_u.data[0][0] : 0.0f;
+            float new_u = std::clamp(u1_curr + delta, -0.5f, 0.5f);
             cmd_len = snprintf(cmd_buf, sizeof(cmd_buf), "{\"u1\":%f}", new_u);
         } else if (my_id == config.coolant_id) {
-            float new_u = std::clamp(u2_curr + delta_u.data[1][0], -0.5f, 0.5f);
+            float delta = std::isfinite(delta_u.data[1][0]) ? delta_u.data[1][0] : 0.0f;
+            float new_u = std::clamp(u2_curr + delta, -0.5f, 0.5f);
             cmd_len = snprintf(cmd_buf, sizeof(cmd_buf), "{\"u2\":%f}", new_u);
         } else {
             continue;

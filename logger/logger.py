@@ -196,7 +196,7 @@ class Logger:
             except (ValueError, KeyError, TypeError) as e:
                 traceback.print_exception(e)
                 print(f"[MONITORING_PHASE] Skipping malformed packet: {e}")
-                print(msg)
+                print(data.decode())
                 continue
 
     def init_log_file(self, scenario, rp1Load, rp4Load, beta, alpha, event_based):
