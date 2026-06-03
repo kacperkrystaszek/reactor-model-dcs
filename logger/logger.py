@@ -257,7 +257,7 @@ def apply_cpu_load(ip):
     cores = "1" if ip.endswith("2") else "4"
 
     proc = subprocess.Popen(
-        ["ssh", f"pi@{ip}", f"sudo stress-ng --cpu {cores} --cpu-method matrixprod --cpu-load 80"],
+        ["ssh", f"pi@{ip}", f"sudo stress-ng --cpu {cores} --cpu-method matrixprod --oom-avoid --cpu-load 80 --timeout 370"],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL
@@ -453,8 +453,8 @@ if __name__ == "__main__":
     reset_node(RP1IP)
     reset_node(RP4IP)
 
-    # scenario = "STANDARD"
-    # run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
+    scenario = "STANDARD"
+    run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
 
     # scenario = "CPULOAD"
     # for rpi1Load in [True]:
@@ -479,8 +479,8 @@ if __name__ == "__main__":
     # scenario = "COMBINEDNETWORK"
     # run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
 
-    scenario = "COMBINEDALL"
-    run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
+    # scenario = "COMBINEDALL"
+    # run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
 
-    scenario = "STANDARD"
-    run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
+    # scenario = "STANDARD"
+    # run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
