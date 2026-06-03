@@ -1,28 +1,42 @@
-Traceback (most recent call last):
-  File "C:\Users\Kapek\Desktop\reactor-model-dcs\logger\logger.py", line 143, in monitoring_phase
-    msg = json.loads(data.decode())
-          ^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Program Files\Python311\Lib\json\__init__.py", line 346, in loads
-    return _default_decoder.decode(s)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Program Files\Python311\Lib\json\decoder.py", line 337, in decode
-    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Program Files\Python311\Lib\json\decoder.py", line 355, in raw_decode
-    raise JSONDecodeError("Expecting value", s, err.value) from None
-json.decoder.JSONDecodeError: Expecting value: line 1 column 37 (char 36)
-[MONITORING_PHASE] Skipping malformed packet: Expecting value: line 1 column 37 (char 36)
-{'type': 'STATUS', 'payload': {'u1': 0.1667, 'u2': 0.0667, 'y1': 0.4918, 'y2': 0.297, 'sp_y1': 0.5, 'sp_y2': 0.3, 'psc1': 1, 'psc2': 3, 'is_event_y1': True, 'is_event_y2': False, 'beta_y1': 0.005, 'beta_y2': 0.005, 'hmax_y1': 5, 'hmax_y2': 6}}
-Traceback (most recent call last):
-  File "C:\Users\Kapek\Desktop\reactor-model-dcs\logger\logger.py", line 455, in <module>
-    run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
-  File "C:\Users\Kapek\Desktop\reactor-model-dcs\logger\logger.py", line 425, in run_investigation
-    while not main(logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, logger.config['BETA_Y1'], logger.config['ALPHA'], logger.config['EVENT_BASED']) and attempts < 6:
-              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\Kapek\Desktop\reactor-model-dcs\logger\logger.py", line 361, in main
-    if not logger.monitoring_phase():
-           ^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\Kapek\Desktop\reactor-model-dcs\logger\logger.py", line 135, in monitoring_phase
-    data, addr = self._sock.recvfrom(4096)
-                 ^^^^^^^^^^^^^^^^^^^^^^^^^
-KeyboardInterrupt
+--- SUPERVISOR LOGGER STARTED on port 5000 ---
+[192.168.70.2] RUN RESET
+[192.168.70.2] END RESET
+[192.168.70.3] RUN RESET
+[192.168.70.3] END RESET
+RUNNING SIM FOR: SCENARIO-COMBINEDALL RP1LOAD-True RP4LOAD-True EB-False ALPHA-500 BETA-0.01
+Waiting for components to initialize...
+[192.168.70.2] RUN CONTROLLER
+[192.168.70.2] FINISHED RUN CONTROLLER
+[192.168.70.3] RUN CONTROLLER
+[192.168.70.3] FINISHED RUN CONTROLLER
+[INIT_PHASE] Connection from ('192.168.70.3', 5003). Sending ACK with config.
+[INIT_PHASE] Connection from ('192.168.70.2', 5002). Sending ACK with config.
+[INIT_PHASE] Connection from ('192.168.70.5', 5001). Sending ACK with config.
+[POST_INIT_PHASE] ('192.168.70.5', 5001) is in WAIT_START state.
+[POST_INIT_PHASE] ('192.168.70.5', 5001) is in WAIT_START state.
+[POST_INIT_PHASE] ('192.168.70.3', 5003) is in WAIT_START state.
+[POST_INIT_PHASE] ('192.168.70.2', 5002) is in WAIT_START state.
+[192.168.70.2] RUN CPU LOAD
+[192.168.70.2] RUN CPU LOAD
+[192.168.70.2] RUN NETWORK LOAD
+[192.168.70.2] END RUN NETWORK LOAD
+[192.168.70.3] RUN CPU LOAD
+[192.168.70.3] RUN CPU LOAD
+[192.168.70.3] RUN NETWORK LOAD
+[192.168.70.3] END RUN NETWORK LOAD
+
+All components are READY (Standby Mode).
+Starting sequence in 2 seconds...
+[START_PHASE] Sending START to ('192.168.70.3', 5003)...
+[START_PHASE] ('192.168.70.3', 5003) is in RUNNING state.
+[START_PHASE] Sending START to ('192.168.70.2', 5002)...
+[START_PHASE] ('192.168.70.2', 5002) is in RUNNING state.
+[START_PHASE] Sending START to ('192.168.70.5', 5001)...
+[START_PHASE] ('192.168.70.5', 5001) is in RUNNING state.
+
+--- SYSTEM RUNNING - MONITORING MODE ---
+TIMESTAMP  | Y1SP     Y2SP     | Y1       Y2       | U1       U2       | EVENT
+1.00000761449337e-07 | 0.5000   0.3000   | 0.0000   0.0000   | 0.0000   0.0000   | E1 E2
+20.023368800000753 | 0.5000   0.3000   | -1.1736  -0.2879  | 0.1291   -0.1636  | E1 E2
+30.00154129997827 | 0.5000   0.3000   | 0.4562   0.3892   | 0.2240   -0.0532  | E1 E2
+40.01730559999123 | 0.5000   0.3000   | -1.4517  -0.3760  | 0.2273   0.5000   | E1 E2

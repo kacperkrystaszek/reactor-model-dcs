@@ -263,7 +263,7 @@ def apply_cpu_load(ip):
         stderr=subprocess.DEVNULL
     )
     active_processes_controllers[f"{ip}_stress"] = proc
-    print(f"[{ip}] RUN CPU LOAD")
+    print(f"[{ip}] RUN END CPU LOAD")
 
 def apply_network_load(ip, scenario):
     print(f"[{ip}] RUN NETWORK LOAD")
@@ -338,12 +338,6 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, beta, alpha
     if not logger.post_init_phase():
         return False
 
-    print("\nAll components are READY (Standby Mode).")
-    print("Starting sequence in 2 seconds...")
-    time.sleep(2)
-    if not logger.start_phase():
-        return False
-
     if rp1Load:
         if scenario == "CPULOAD" or scenario == "COMBINEDALL":
             apply_cpu_load(RP1IP)
@@ -354,6 +348,13 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, beta, alpha
             apply_cpu_load(RP4IP)
         if scenario != "STANDARD" and scenario != "CPULOAD":
             apply_network_load(RP4IP, scenario)
+
+    print("\nAll components are READY (Standby Mode).")
+    print("Starting sequence in 2 seconds...")
+    time.sleep(2)
+    if not logger.start_phase():
+        return False
+
 
     logger._sock.settimeout(30)
     print("\n--- SYSTEM RUNNING - MONITORING MODE ---")
@@ -402,8 +403,8 @@ def run_investigation(logger, start_timestamp, scenario, rp1Load, rp4Load, rpi1I
     # for ebValue in [False]:
     # for ebValue in [True]:
         # for alphaValue in [1, 250, 500, 900]:
-        # for alphaValue in [500, 900]:
-        for alphaValue in [250, 500, 900]:
+        for alphaValue in [500, 900]:
+        # for alphaValue in [250, 500, 900]:
             logger.config['EVENT_BASED'] = ebValue
             logger.config['ALPHA'] = alphaValue
             if not ebValue:
@@ -454,28 +455,28 @@ if __name__ == "__main__":
     scenario = "STANDARD"
     run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
 
-    scenario = "CPULOAD"
-    for rpi1Load in [True]:
-        for rpi4Load in [False, True]:
-            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    # scenario = "CPULOAD"
+    # for rpi1Load in [True]:
+    #     for rpi4Load in [False, True]:
+    #         run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    scenario = "CONSTANTDELAY"
-    for rpi1Load in [True]:
-        for rpi4Load in [False, True]:
-            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    # scenario = "CONSTANTDELAY"
+    # for rpi1Load in [True]:
+    #     for rpi4Load in [False, True]:
+    #         run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    scenario = "VARIABLEDELAY"
-    for rpi1Load in [True]:
-        for rpi4Load in [False, True]:
-            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    # scenario = "VARIABLEDELAY"
+    # for rpi1Load in [True]:
+    #     for rpi4Load in [False, True]:
+    #         run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    scenario = "PACKETLOSS"
-    for rpi1Load in [True]:
-        for rpi4Load in [False, True]:
-            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    # scenario = "PACKETLOSS"
+    # for rpi1Load in [True]:
+    #     for rpi4Load in [False, True]:
+    #         run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    scenario = "COMBINEDNETWORK"
-    run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
+    # scenario = "COMBINEDNETWORK"
+    # run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
 
-    scenario = "COMBINEDALL"
-    run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
+    # scenario = "COMBINEDALL"
+    # run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
