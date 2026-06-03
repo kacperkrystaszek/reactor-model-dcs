@@ -422,9 +422,26 @@ SemaphoreHandle_t mutex_u;
 std::atomic<bool> in_handshake(true);
 std::atomic<bool> need_restart(false);
 
+TaskHandle_t g_commTaskHandle = nullptr;
+TaskHandle_t g_simTaskHandle = nullptr;
+volatile UBaseType_t g_simStackMinWords = 0xFFFFFFFF;
+volatile UBaseType_t g_commStackMinWords = 0xFFFFFFFF;
+volatile size_t g_freeHeapNow = 0;
+volatile size_t g_freeHeapMin = 0;
+volatile uint32_t g_simLoopCounter = 0;
+
+static void updateMemDiag() {
+    g_simStackMinWords = uxTaskGetStackHighWaterMark(nullptr);
+    if (g_commTaskHandle) {
+        g_commStackMinWords = uxTaskGetStackHighWaterMark(g_commTaskHandle);
+    }
+    g_freeHeapNow = xPortGetFreeHeapSize();
+    g_freeHeapMin = xPortGetMinimumEverFreeHeapSize();
+}
+
 void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
     enum State state = INIT;
-    char buffer[1024];
+    static char buffer[1024];
 
     while (state != State::RUNNING) {
         if (state == State::INIT) {
@@ -442,7 +459,8 @@ void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
         if (n > 0) {
             buffer[n] = '\0';
 
-            if (strstr(buffer, "RESTART") != nullptr) {
+			if (strstr(buffer, "RESTART") != nullptr) {
+            	state = State::INIT;
                 continue;
             }
 
@@ -468,7 +486,7 @@ void performHandshake(UDPSocket& sock_ref, SystemConfig& cfg_ref) {
 }
 
 void CommunicationTask(void *pvParameters) {
-    char cmd[512];
+    char cmd[256];
 
     while (true) {
         if (!sock.isInitialized() || in_handshake.load()) {
@@ -505,7 +523,8 @@ void SimulationTask(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    char stateJson[512];
+    static char stateJson[512];
+    static NoiseGen generator(&hrng, 0.002f, 0.002f);
 
     while (true) {
         if (!sock.isInitialized()) {
@@ -522,7 +541,6 @@ void SimulationTask(void *pvParameters) {
         sock.setNonBlocking(false);
 
         Reactor reactor(cfg, cfg.y1_0, cfg.y2_0, 0.0f, 0.0f);
-        NoiseGen generator(&hrng, 0.002f, 0.002f);
 
         xSemaphoreTake(mutex_u, portMAX_DELAY);
         u1_global = 0.0f;
@@ -552,6 +570,8 @@ void SimulationTask(void *pvParameters) {
 
         while (!need_restart.load()) {
             vTaskDelayUntil(&xLastWakeTime, xFrequency);
+            g_simLoopCounter++;
+            updateMemDiag();
             TickType_t elapsed_ticks = xTaskGetTickCount() - xStartWakeTime;
             sim_time = (elapsed_ticks * portTICK_PERIOD_MS) / 60000.0f;
 
@@ -623,7 +643,6 @@ void SimulationTask(void *pvParameters) {
 // CubeIDE integration point
 // ------------------------------------------
 extern "C" void app_main() {
-    // Initial static config
     cfg.model_port = 5001;
     strncpy(cfg.logger_ip, "192.168.70.1", sizeof(cfg.logger_ip) - 1);
     cfg.logger_ip[sizeof(cfg.logger_ip) - 1] = '\0';
@@ -636,7 +655,7 @@ extern "C" void app_main() {
     mutex_u = xSemaphoreCreateMutex();
 
     if (mutex_u != NULL) {
-        xTaskCreate(CommunicationTask, "CommTask", 1024, NULL, tskIDLE_PRIORITY + 1, NULL);
-        xTaskCreate(SimulationTask, "SimTask", 2048, NULL, tskIDLE_PRIORITY + 2, NULL);
+        xTaskCreate(CommunicationTask, "CommTask", 1024, NULL, tskIDLE_PRIORITY + 1, &g_commTaskHandle);
+        xTaskCreate(SimulationTask, "SimTask", 2048, NULL, tskIDLE_PRIORITY + 2, &g_simTaskHandle);
     }
 }
