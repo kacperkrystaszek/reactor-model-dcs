@@ -7,3 +7,4 @@ class MessageType(Enum):
     ACK = "ACK"
     STATUS = "STATUS"
     RESTART = "RESTART"
+    FINISHED = "FINISHED"

@@ -128,32 +128,35 @@ class Logger:
     def monitoring_phase(self):
         print(f"TIMESTAMP  | Y1SP     Y2SP     | Y1       Y2       | U1       U2       | EVENT")
         zero_time = None
-        breakLoop = False
         lastMoment = 0
         while True:
-            if breakLoop:
-                self._log_file.close()
-                break
             try:
                 data, addr = self._sock.recvfrom(4096)
             except socket.timeout:
+                print("[MONITORING_PHASE] No data within safety timeout. Treating run as failed.")
                 self._log_file.close()
                 return False
-            if zero_time is None:
-                zero_time = time.perf_counter()
-            ts = time.perf_counter() - zero_time
-            if ts > 360:
-                breakLoop = True
             if addr not in list(self._clients):
                 continue
             try:
                 msg = json.loads(data.decode())
-                if msg.get("type") != MessageType.STATUS.value:
+                msg_type = msg.get("type")
+                if msg_type == MessageType.FINISHED.value:
+                    if zero_time is None:
+                        continue
+                    print("[MONITORING_PHASE] Received FINISHED from model. Run completed.")
+                    self._log_file.close()
+                    return True
+                if msg_type != MessageType.STATUS.value:
                     continue
                 payload = msg.get("payload")
                 if payload is None:
                     continue
-                
+
+                if zero_time is None:
+                    zero_time = time.perf_counter()
+                ts = time.perf_counter() - zero_time
+
                 y1, y2 = payload.get("y1"), payload.get("y2")
                 u1, u2 = payload.get("u1"), payload.get("u2")
                 sp_y1, sp_y2 = payload.get("sp_y1"), payload.get("sp_y2")
@@ -189,10 +192,9 @@ class Logger:
                     hmax_y2
                 ])
                 self._log_file.flush()
-            except Exception as e:
-                self._log_file.close()
-                pass
-        return True
+            except (ValueError, KeyError, TypeError) as e:
+                print(f"[MONITORING_PHASE] Skipping malformed packet: {e}")
+                continue
 
     def init_log_file(self, scenario, rp1Load, rp4Load, beta, alpha, event_based):
         timestamp = datetime.datetime.now()
@@ -350,7 +352,7 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, beta, alpha
         if scenario != "STANDARD" and scenario != "CPULOAD":
             apply_network_load(RP4IP, scenario)
 
-    logger._sock.settimeout(20)
+    logger._sock.settimeout(30)
     print("\n--- SYSTEM RUNNING - MONITORING MODE ---")
     logger.init_log_file(scenario, rp1Load, rp4Load, beta, alpha, event_based)
     if not logger.monitoring_phase():

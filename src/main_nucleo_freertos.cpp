@@ -546,9 +546,9 @@ void SimulationTask(void *pvParameters) {
 		TickType_t xLastWakeTime = xStartWakeTime;
 		float sim_time = 0.0f;
 
-        int logger_skip_counter = 0;
-        int max_logger_skip = 30 / xFrequency;
-        if (max_logger_skip < 1) max_logger_skip = 1;
+        const TickType_t LOGGER_MIN_INTERVAL = pdMS_TO_TICKS(25);
+        const TickType_t LOGGER_MAX_SILENCE = pdMS_TO_TICKS(2000);
+        TickType_t last_logger_tx = xTaskGetTickCount() - LOGGER_MAX_SILENCE;
 
         while (!need_restart.load()) {
             vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -556,6 +556,9 @@ void SimulationTask(void *pvParameters) {
             sim_time = (elapsed_ticks * portTICK_PERIOD_MS) / 60000.0f;
 
             if (sim_time > 6.0f){
+                int finishedLen = snprintf(stateJson, sizeof(stateJson), "{\"type\":\"FINISHED\"}");
+                sock.sendTo(stateJson, finishedLen, cfg.logger_ip, cfg.logger_port);
+                vTaskDelay(pdMS_TO_TICKS(200));
                 continue;
             }
 
@@ -589,19 +592,17 @@ void SimulationTask(void *pvParameters) {
 
             MessageConstructor::createStateMsg(current_u1, current_u2, y1, y2, cfg.sp_y1, cfg.sp_y2, psc1, psc2, trigger_y1, trigger_y2, cfg.beta_y1, cfg.beta_y2, cfg.hmax_y1, cfg.hmax_y2, stateJson, sizeof(stateJson));
 
-            logger_skip_counter++;
-            bool logger_trigger = false;
-
-            if ((logger_skip_counter >= max_logger_skip) || (cfg.event_based && control_trigger)) logger_trigger = true;
-
-            if (logger_trigger) {
-            	sock.sendTo(stateJson, strlen(stateJson), cfg.logger_ip, cfg.logger_port);
-            	logger_skip_counter = 0;
-            }
-
             if (control_trigger) {
                 sock.sendTo(stateJson, strlen(stateJson), cfg.feed_ip, cfg.feed_port);
                 sock.sendTo(stateJson, strlen(stateJson), cfg.coolant_ip, cfg.coolant_port);
+            }
+
+            TickType_t now = xTaskGetTickCount();
+            bool logger_due = (now - last_logger_tx) >= LOGGER_MAX_SILENCE;
+            bool logger_allowed = (now - last_logger_tx) >= LOGGER_MIN_INTERVAL;
+            if ((control_trigger && logger_allowed) || logger_due) {
+                sock.sendTo(stateJson, strlen(stateJson), cfg.logger_ip, cfg.logger_port);
+                last_logger_tx = now;
             }
 
             if (trigger_y1) {
