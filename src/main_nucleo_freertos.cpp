@@ -491,8 +491,8 @@ void CommunicationTask(void *pvParameters) {
             const char* pU2 = strstr(cmd, "\"u2\":");
 
             xSemaphoreTake(mutex_u, portMAX_DELAY);
-            if (pU1) { float v = (float)atof(pU1 + 5); if (std::isfinite(v)) u1_global = v; }
-            if (pU2) { float v = (float)atof(pU2 + 5); if (std::isfinite(v)) u2_global = v; }
+            if (pU1) u1_global = atof(pU1 + 5);
+            if (pU2) u2_global = atof(pU2 + 5);
             xSemaphoreGive(mutex_u);
         }
     }
