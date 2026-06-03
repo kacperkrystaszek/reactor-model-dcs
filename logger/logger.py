@@ -372,11 +372,11 @@ def main(logger: Logger, rpi1Ip, rpi4Ip, scenario, rp1Load, rp4Load, beta, alpha
 
 def send_restart(logger, addr):
     restart_msg = json.dumps({"type": MessageType.RESTART.value}).encode()
-    for _ in range(3): 
-        try:
-            logger._sock.sendto(restart_msg, addr)
-        except Exception as e:
-            print(f"[SEND_RESTART] Nie udało się wysłać RESTART do {addr}: {e}")
+    # for _ in range(3): 
+    try:
+        logger._sock.sendto(restart_msg, addr)
+    except Exception as e:
+        print(f"[SEND_RESTART] Nie udało się wysłać RESTART do {addr}: {e}")
 
 
 def clear_buffer(logger: Logger):
@@ -399,11 +399,12 @@ def run_investigation(logger, start_timestamp, scenario, rp1Load, rp4Load, rpi1I
         file.write(f"FAIL: {scenario} ALPHA-{alpha} BETA-{beta} EB-{eb}\n")
         file.close()
 
-    for ebValue in [False, True]:
-    # for ebValue in [False]:
+    # for ebValue in [False, True]:
+    for ebValue in [False]:
     # for ebValue in [True]:
         # for alphaValue in [1, 250, 500, 900]:
-        for alphaValue in [500, 900]:
+        # for alphaValue in [500, 900]:
+        for alphaValue in [900, 250]:
         # for alphaValue in [250, 500, 900]:
             logger.config['EVENT_BASED'] = ebValue
             logger.config['ALPHA'] = alphaValue
@@ -452,8 +453,8 @@ if __name__ == "__main__":
     reset_node(RP1IP)
     reset_node(RP4IP)
 
-    scenario = "STANDARD"
-    run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
+    # scenario = "STANDARD"
+    # run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
 
     # scenario = "CPULOAD"
     # for rpi1Load in [True]:
@@ -478,5 +479,8 @@ if __name__ == "__main__":
     # scenario = "COMBINEDNETWORK"
     # run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
 
-    # scenario = "COMBINEDALL"
-    # run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
+    scenario = "COMBINEDALL"
+    run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
+
+    scenario = "STANDARD"
+    run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
