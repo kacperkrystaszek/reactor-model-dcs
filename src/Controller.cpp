@@ -8,17 +8,11 @@
 #include <algorithm>
 
 Controller::Controller(UDPSocket& sock, const std::string& controller_id)
-    : sock(sock), my_id(controller_id), state(State::INIT), history_t(nullptr), history_y1(nullptr), history_y2(nullptr) {
+    : sock(sock), my_id(controller_id), state(State::INIT) {
     for (int i = 0; i < 6; ++i) {
         k_mpc_valid[i] = false;
     }
     history_count = 0;
-}
-
-Controller::~Controller(){
-    delete[] history_t;
-    delete[] history_y1;
-    delete[] history_y2;
 }
 
 void Controller::updateModel() {
@@ -55,12 +49,10 @@ void Controller::updateModel() {
 }
 
 Matrix<4, 6> Controller::calculateKmpc(int psc){
-    float alpha_f = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
-    int effective_psc = static_cast<int>(psc * alpha_f);
-    int n_steps = 3 * effective_psc;
+    int n_steps = 3 * psc;
     
-    float* g_11 = new float[n_steps](); float* g_21 = new float[n_steps]();
-    float* g_12 = new float[n_steps](); float* g_22 = new float[n_steps]();
+    float g_11[n_steps] = {0}, g_21[n_steps] = {0};
+    float g_12[n_steps] = {0}, g_22[n_steps] = {0};
     
     float y1 = 0.0f, y1_prev = 0.0f;
     float y2 = 0.0f, y2_prev = 0.0f;
@@ -92,9 +84,9 @@ Matrix<4, 6> Controller::calculateKmpc(int psc){
         y2_prev = y2; y2 = y2_new;
     }
     
-    int s1 = effective_psc - 1;
-    int s2 = 2 * effective_psc - 1;
-    int s3 = 3 * effective_psc - 1;
+    int s1 = psc - 1;
+    int s2 = 2 * psc - 1;
+    int s3 = 3 * psc - 1;
     
     Matrix<6, 4> G;
     G.data[0] = {g_11[s1], g_12[s1], 0.0f,     0.0f};
@@ -104,16 +96,12 @@ Matrix<4, 6> Controller::calculateKmpc(int psc){
     G.data[4] = {g_11[s3], g_12[s3], g_11[s2], g_12[s2]};
     G.data[5] = {g_21[s3], g_22[s3], g_21[s2], g_22[s2]};
     
-    delete[] g_11; delete[] g_21; delete[] g_12; delete[] g_22;
-    
     Matrix<4, 6> GT = G.transpose();
     Matrix<4, 4> HTH = GT * G;
     
-    float base_lambda = 0.5f; 
-    float scaled_lambda = base_lambda / (alpha_f * alpha_f);
-    
+    float lambda = 0.5;
     for (int i = 0; i < 4; ++i) {
-        HTH.data[i][i] += scaled_lambda;
+        HTH.data[i][i] += lambda;
     }
     
     Matrix<4, 4> invHTH = invert4x4(HTH);
@@ -150,40 +138,34 @@ static float evaluateLagrange(const float* x, const float* y, size_t count, floa
 }
 
 void Controller::resampleStatesLagrange(float T_f, float& y1, float& y1_prev, float& y2, float& y2_prev) {
-    float alpha = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
-    float T_s = (config.t_base / 1000.0f) / alpha;
+    float T_BASE = config.t_base / 1000.0f;
     
     if (history_count == 1) {
         y1 = history_y1[0]; y1_prev = history_y1[0];
         y2 = history_y2[0]; y2_prev = history_y2[0];
         return;
     }
-    if (history_count == 2 || std::abs(T_f - T_s) < 0.001f) {
+    if (history_count == 2 || std::abs(T_f - T_BASE) < 0.01f) {
         y1 = history_y1[history_count - 1]; y1_prev = history_y1[history_count - 2];
         y2 = history_y2[history_count - 1]; y2_prev = history_y2[history_count - 2];
         return;
     }
 
-    const size_t maxWindow = 4;
-    size_t window = history_count < maxWindow ? history_count : maxWindow;
-    size_t startIdx = history_count - window;
-
     float t_curr_real = history_t[history_count - 1];
-    float* normalized_t = new float[window];
-
-    for (size_t i = 0; i < window; ++i) {
-        normalized_t[i] = history_t[startIdx + i] - t_curr_real;
+    float normalized_t[HISTORY_MAX];
+    for (size_t i = 0; i < history_count; ++i) {
+        normalized_t[i] = history_t[i] - t_curr_real;
     }
 
-    float y1_resampled = evaluateLagrange(normalized_t, history_y1 + startIdx, window, -T_s);
-    float y2_resampled = evaluateLagrange(normalized_t, history_y2 + startIdx, window, -T_s);
-    
-    float min_y1 = history_y1[startIdx];
-    float max_y1 = history_y1[startIdx];
-    float min_y2 = history_y2[startIdx];
-    float max_y2 = history_y2[startIdx];
+    float y1_resampled = evaluateLagrange(normalized_t, history_y1, history_count, -T_BASE);
+    float y2_resampled = evaluateLagrange(normalized_t, history_y2, history_count, -T_BASE);
 
-    for (size_t i = startIdx + 1; i < history_count; ++i) {
+    float min_y1 = history_y1[0];
+    float max_y1 = history_y1[0];
+    float min_y2 = history_y2[0];
+    float max_y2 = history_y2[0];
+
+    for (size_t i = 1; i < history_count; ++i) {
         if (history_y1[i] < min_y1) min_y1 = history_y1[i];
         if (history_y1[i] > max_y1) max_y1 = history_y1[i];
         if (history_y2[i] < min_y2) min_y2 = history_y2[i];
@@ -191,18 +173,13 @@ void Controller::resampleStatesLagrange(float T_f, float& y1, float& y1_prev, fl
     }
 
     y1 = history_y1[history_count - 1];
+    y1_prev = std::clamp(y1_resampled, min_y1, max_y1);
     y2 = history_y2[history_count - 1];
-
-    y1_prev = std::isfinite(y1_resampled) ? std::clamp(y1_resampled, min_y1, max_y1) : y1;
-    y2_prev = std::isfinite(y2_resampled) ? std::clamp(y2_resampled, min_y2, max_y2) : y2;
-    delete[] normalized_t;
+    y2_prev = std::clamp(y2_resampled, min_y2, max_y2);
 }
 
 Matrix<6, 1> Controller::calculateFreeResponse(const std::array<float, 2>& y1_h, const std::array<float, 2>& y2_h, 
                                                const std::array<float, 2>& u1_h, const std::array<float, 2>& u2_h, int psc) {
-    float alpha_f = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
-    int effective_psc = static_cast<int>(psc * alpha_f);
-    
     std::array<float, 2> ly1 = y1_h;
     std::array<float, 2> ly2 = y2_h;
     std::array<float, 2> lu1 = u1_h;
@@ -214,7 +191,7 @@ Matrix<6, 1> Controller::calculateFreeResponse(const std::array<float, 2>& y1_h,
     Matrix<6, 1> preds;
     int pred_idx = 0;
     
-    for (int k = 1; k <= 3 * effective_psc; ++k) {
+    for (int k = 1; k <= 3 * psc; ++k) {
         float pred_y1 = A1_Y1 * ly1[0] + A2_Y1 * ly1[1] +
                         B0_U1_Y1 * current_u1 + B1_U1_Y1 * lu1[1] +
                         B0_U2_Y1 * current_u2 + B1_U2_Y1 * lu2[1];
@@ -223,7 +200,7 @@ Matrix<6, 1> Controller::calculateFreeResponse(const std::array<float, 2>& y1_h,
                         B0_U1_Y2 * current_u1 + B1_U1_Y2 * lu1[1] +
                         B0_U2_Y2 * current_u2 + B1_U2_Y2 * lu2[1];
                         
-        if (k % effective_psc == 0) {
+        if (k % psc == 0) {
             preds.data[pred_idx][0] = pred_y1;
             preds.data[pred_idx + 1][0] = pred_y2;
             pred_idx += 2;
@@ -350,9 +327,7 @@ void Controller::mainLoop() {
         int psc2 = getIntVal("psc2", 1);
 
         int my_psc = (my_id == "feed") ? psc1 : psc2;
-        float alpha = config.alpha > 0 ? static_cast<float>(config.alpha) : 1.0f;
-        float T_s = (config.t_base / 1000.0f) / alpha;
-        float T_f = my_psc * T_s;
+        float T_f = my_psc * (config.t_base / 1000.0f);
         current_t += T_f;
         
         if (history_count < HISTORY_MAX) {
@@ -397,12 +372,10 @@ void Controller::mainLoop() {
         char cmd_buf[64];
         int cmd_len = 0;
         if (my_id == config.feed_id) {
-            float delta = std::isfinite(delta_u.data[0][0]) ? delta_u.data[0][0] : 0.0f;
-            float new_u = std::clamp(u1_curr + delta, -0.5f, 0.5f);
+            float new_u = std::clamp(u1_curr + delta_u.data[0][0], -0.5f, 0.5f);
             cmd_len = snprintf(cmd_buf, sizeof(cmd_buf), "{\"u1\":%f}", new_u);
         } else if (my_id == config.coolant_id) {
-            float delta = std::isfinite(delta_u.data[1][0]) ? delta_u.data[1][0] : 0.0f;
-            float new_u = std::clamp(u2_curr + delta, -0.5f, 0.5f);
+            float new_u = std::clamp(u2_curr + delta_u.data[1][0], -0.5f, 0.5f);
             cmd_len = snprintf(cmd_buf, sizeof(cmd_buf), "{\"u2\":%f}", new_u);
         } else {
             continue;
