@@ -236,10 +236,10 @@ class Reactor {
             float current_T_BASE = static_cast<float>(cfg.t_base) / alpha;
             float T_min = (current_T_BASE / 1000.0f) / 60.0f;
 
-            float p1 = std::exp(-T_min / (0.7f));
-            float p2 = std::exp(-T_min / (0.3f));
-            float p3 = std::exp(-T_min / (0.5f));
-            float p4 = std::exp(-T_min / (0.4f));
+            float p1 = std::exp(-T_min / (0.7f / alpha));
+            float p2 = std::exp(-T_min / (0.3f / alpha));
+            float p3 = std::exp(-T_min / (0.5f / alpha));
+            float p4 = std::exp(-T_min / (0.4f / alpha));
 
 //            float p1 = std::exp(-T_min / 0.7f);
 //            float p2 = std::exp(-T_min / 0.3f);

@@ -401,9 +401,9 @@ def run_investigation(logger, start_timestamp, scenario, rp1Load, rp4Load, rpi1I
     for ebValue in [False, True]:
     # for ebValue in [False]:
     # for ebValue in [True]:
-        for alphaValue in [1, 250, 500, 900]:
+        # for alphaValue in [1, 250, 500, 900]:
         # for alphaValue in [500, 900]:
-        # for alphaValue in [250, 500, 900]:
+        for alphaValue in [250, 500, 900]:
             logger.config['EVENT_BASED'] = ebValue
             logger.config['ALPHA'] = alphaValue
             if not ebValue:
