@@ -399,12 +399,12 @@ def run_investigation(logger, start_timestamp, scenario, rp1Load, rp4Load, rpi1I
         file.write(f"FAIL: {scenario} ALPHA-{alpha} BETA-{beta} EB-{eb}\n")
         file.close()
 
-    # for ebValue in [False, True]:
-    for ebValue in [False]:
+    for ebValue in [False, True]:
+    # for ebValue in [False]:
     # for ebValue in [True]:
-        # for alphaValue in [1, 250, 500, 900]:
+        for alphaValue in [1, 250, 500, 900]:
         # for alphaValue in [500, 900]:
-        for alphaValue in [900, 250]:
+        # for alphaValue in [900, 250]:
         # for alphaValue in [250, 500, 900]:
             logger.config['EVENT_BASED'] = ebValue
             logger.config['ALPHA'] = alphaValue
@@ -453,34 +453,34 @@ if __name__ == "__main__":
     reset_node(RP1IP)
     reset_node(RP4IP)
 
-    # scenario = "STANDARD"
-    # run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
+    scenario = "STANDARD"
+    run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
 
-    # scenario = "CPULOAD"
-    # for rpi1Load in [True]:
-    #     for rpi4Load in [False, True]:
-    #         run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    scenario = "CPULOAD"
+    for rpi1Load in [True]:
+        for rpi4Load in [False, True]:
+            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    # scenario = "CONSTANTDELAY"
-    # for rpi1Load in [True]:
-    #     for rpi4Load in [False, True]:
-    #         run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    scenario = "CONSTANTDELAY"
+    for rpi1Load in [True]:
+        for rpi4Load in [False, True]:
+            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    # scenario = "VARIABLEDELAY"
-    # for rpi1Load in [True]:
-    #     for rpi4Load in [False, True]:
-    #         run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    scenario = "VARIABLEDELAY"
+    for rpi1Load in [True]:
+        for rpi4Load in [False, True]:
+            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    # scenario = "PACKETLOSS"
-    # for rpi1Load in [True]:
-    #     for rpi4Load in [False, True]:
-    #         run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
+    scenario = "PACKETLOSS"
+    for rpi1Load in [True]:
+        for rpi4Load in [False, True]:
+            run_investigation(logger, start_timestamp_str, scenario, rpi1Load, rpi4Load, RP1IP, RP4IP)
 
-    # scenario = "COMBINEDNETWORK"
-    # run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
+    scenario = "COMBINEDNETWORK"
+    run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
 
     scenario = "COMBINEDALL"
     run_investigation(logger, start_timestamp_str, scenario, True, True, RP1IP, RP4IP)
 
-    scenario = "STANDARD"
-    run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
+    # scenario = "STANDARD"
+    # run_investigation(logger, start_timestamp_str, scenario, None, None, RP1IP, RP4IP)
